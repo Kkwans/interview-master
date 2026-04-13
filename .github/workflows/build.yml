@@ -30,7 +30,9 @@ jobs:
         uses: android-actions/setup-android@v2
 
       - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          echo "ANDROID_HOME: $ANDROID_HOME"
 
       - name: Build Debug APK
         run: |
