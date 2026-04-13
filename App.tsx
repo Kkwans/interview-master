@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { StatusBar, Platform, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, SafeAreaView } from 'react-native';
+import { StatusBar, Platform, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, SafeAreaView, AsyncStorage } from 'react-native';
 import axios from 'axios';
 
-// API配置
-const API_BASE = 'http://192.168.5.110:3000';
+// API配置 - 支持内外网
+const getApiBase = () => {
+  // 尝试内网，失败则用外网
+  return 'http://192.168.5.110:3000';
+};
+const API_BASE = getApiBase();
 
 // 颜色主题
 const COLORS = {
@@ -18,35 +22,86 @@ const COLORS = {
   border: '#E0E0E0',
 };
 
-// ==================== 内存存储 ====================
-let memoryStore = {
-  user: null,
-  wrongQuestions: [],
-  progress: {},
+// ==================== AsyncStorage持久化 ====================
+const STORAGE_KEYS = {
+  USER: '@interview_master_user',
+  WRONG_QUESTIONS: '@interview_master_wrong',
+  PROGRESS: '@interview_master_progress',
+  SETTINGS: '@interview_master_settings',
 };
 
 const saveData = async (key, data) => {
-  memoryStore[key] = data;
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.error('Save error:', e);
+  }
 };
 
 const getData = async (key) => {
-  return memoryStore[key] || null;
+  try {
+    const data = await AsyncStorage.getItem(key);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    console.error('Load error:', e);
+    return null;
+  }
+};
+
+// 初始化加载数据
+const initStorage = async () => {
+  const user = await getData(STORAGE_KEYS.USER);
+  const wrongQuestions = await getData(STORAGE_KEYS.WRONG_QUESTIONS) || [];
+  return { user, wrongQuestions };
 };
 
 // ==================== 主应用 ====================
 export default function App() {
   const [screen, setScreen] = useState('login');
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkLogin();
+  }, []);
+
+  const checkLogin = async () => {
+    try {
+      const savedUser = await getData(STORAGE_KEYS.USER);
+      if (savedUser) {
+        setUser(savedUser);
+        setScreen('home');
+      }
+    } catch (e) {
+      console.error('Auto login error:', e);
+    }
+    setLoading(false);
+  };
 
   const handleLogin = (userData) => {
     setUser(userData);
     setScreen('home');
   };
 
+  const handleLogout = async () => {
+    await saveData(STORAGE_KEYS.USER, null);
+    setUser(null);
+    setScreen('login');
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={{ marginTop: 10, color: COLORS.textSecondary }}>加载中...</Text>
+      </View>
+    );
+  }
+
   const renderScreen = () => {
     switch(screen) {
       case 'login': return <LoginScreen onLogin={handleLogin} />;
-      case 'home': return <HomeScreen user={user} onNavigate={setScreen} />;
+      case 'home': return <HomeScreen user={user} onNavigate={setScreen} onLogout={handleLogout} />;
       case 'learn': return <LearnScreen onBack={() => setScreen('home')} />;
       case 'practice': return <PracticeScreen onBack={() => setScreen('home')} />;
       case 'interview': return <InterviewScreen onBack={() => setScreen('home')} />;
@@ -126,7 +181,7 @@ function LoginScreen({ onLogin }) {
 
   const handleGuest = async () => {
     const guestUser = { id: 'guest', username: '游客', isGuest: true };
-    await saveData('user', guestUser);
+    await saveData(STORAGE_KEYS.USER, guestUser);
     onLogin(guestUser);
   };
 
@@ -142,8 +197,9 @@ function LoginScreen({ onLogin }) {
       const res = await axios.post(url, { username, password });
       
       if (res.data.token) {
-        await saveData('user', { id: res.data.userId, username, token: res.data.token, isGuest: false });
-        onLogin({ id: res.data.userId, username, token: res.data.token, isGuest: false });
+        const userData = { id: res.data.userId, username, token: res.data.token, isGuest: false };
+        await saveData(STORAGE_KEYS.USER, userData);
+        onLogin(userData);
       }
     } catch (e) {
       Alert.alert('错误', e.response?.data?.error || '网络错误，请检查网络');
@@ -193,7 +249,7 @@ function LoginScreen({ onLogin }) {
 }
 
 // ==================== 首页 ====================
-function HomeScreen({ user, onNavigate }) {
+function HomeScreen({ user, onNavigate, onLogout }) {
   const [stats, setStats] = useState({ questions: 0, articles: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -226,10 +282,15 @@ function HomeScreen({ user, onNavigate }) {
   return (
     <ScrollView style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>欢迎，{user.username}</Text>
-        <Text style={styles.headerSubtitle}>
-          {user.isGuest ? '游客模式' : '已登录'}
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>欢迎，{user.username}</Text>
+          <Text style={styles.headerSubtitle}>
+            {user.isGuest ? '游客模式' : '已登录'}
+          </Text>
+        </View>
+        <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
+          <Text style={styles.logoutText}>退出</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.statsRow}>
@@ -350,7 +411,7 @@ function PracticeScreen({ onBack }) {
     
     const q = questions[currentIdx];
     if (answer !== q.answer) {
-      const wrongList = await getData('wrongQuestions') || [];
+      const wrongList = await getData(STORAGE_KEYS.WRONG_QUESTIONS) || [];
       const existingIdx = wrongList.findIndex(w => w.question_id === q.id);
       if (existingIdx >= 0) {
         wrongList[existingIdx].wrong_count += 1;
@@ -362,9 +423,10 @@ function PracticeScreen({ onBack }) {
           options: JSON.stringify(q.options),
           answer: q.answer,
           wrong_count: 1,
+          wrong_options: answer,
         });
       }
-      await saveData('wrongQuestions', wrongList);
+      await saveData(STORAGE_KEYS.WRONG_QUESTIONS, wrongList);
     }
   };
 
@@ -724,6 +786,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     padding: 20,
     paddingTop: 48,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 24,
@@ -734,6 +799,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.8)',
     marginTop: 4,
+  },
+  logoutBtn: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  logoutText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
