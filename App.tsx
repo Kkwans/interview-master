@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBar, Platform, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, SafeAreaView, AsyncStorage } from 'react-native';
 import axios from 'axios';
-
+ 
 // API配置 - 支持内外网
 const getApiBase = () => {
   // 尝试内网，失败则用外网
