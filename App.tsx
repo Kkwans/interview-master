@@ -178,6 +178,7 @@ function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleGuest = async () => {
     const guestUser = { id: 'guest', username: '游客', isGuest: true };
@@ -187,11 +188,16 @@ function LoginScreen({ onLogin }) {
 
   const handleSubmit = async () => {
     if (!username || !password) {
-      Alert.alert('提示', '请输入用户名和密码');
+      setErrorMsg('请输入用户名和密码');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('密码至少6位');
       return;
     }
     
     setLoading(true);
+    setErrorMsg('');
     try {
       const url = isRegister ? `${API_BASE}/api/register` : `${API_BASE}/api/login`;
       const res = await axios.post(url, { username, password });
@@ -202,16 +208,32 @@ function LoginScreen({ onLogin }) {
         onLogin(userData);
       }
     } catch (e) {
-      Alert.alert('错误', e.response?.data?.error || '网络错误，请检查网络');
+      setErrorMsg(e.response?.data?.error || '网络错误，请检查网络');
     }
     setLoading(false);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.loginBox}>
+      <View style={[styles.loginBox, { marginTop: 60 }]}>
         <Text style={styles.title}>🎯 面试大师</Text>
         <Text style={styles.subtitle}>99元商用精品APP</Text>
+        
+        {/* 登录注册Tab */}
+        <View style={[styles.tabRow, { marginTop: 20, marginBottom: 20 }]}>
+          <TouchableOpacity 
+            style={[styles.tab, !isRegister && styles.tabActive]}
+            onPress={() => { setIsRegister(false); setErrorMsg(''); }}
+          >
+            <Text style={[styles.tabText, !isRegister && styles.tabTextActive]}>登录</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, isRegister && styles.tabActive]}
+            onPress={() => { setIsRegister(true); setErrorMsg(''); }}
+          >
+            <Text style={[styles.tabText, isRegister && styles.tabTextActive]}>注册</Text>
+          </TouchableOpacity>
+        </View>
         
         <TextInput
           style={styles.input}
@@ -228,9 +250,11 @@ function LoginScreen({ onLogin }) {
           secureTextEntry
         />
         
+        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
+        
         <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>
-            {isRegister ? '注册' : '登录'}
+            {isRegister ? '立即注册' : '立即登录'}
           </Text>}
         </TouchableOpacity>
         
@@ -373,7 +397,7 @@ function PracticeScreen({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [category, setCategory] = useState('all');
 
-  const categories = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '数据库', '设计模式'];
+  const categories = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '数据库', '设计模式', '数据结构', 'AI', 'Agent', '操作系统'];
 
   const loadQuestions = async (cat = 'all') => {
     setLoading(true);
@@ -706,6 +730,61 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   loginBox: {
+    width: '85%',
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    padding: 24,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    alignSelf: 'center',
+    marginTop: 60,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: COLORS.primary,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: COLORS.textSecondary,
+    marginBottom: 16,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    borderRadius: 8,
+    backgroundColor: COLORS.background,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  tabActive: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: '#fff',
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
     width: '85%',
     backgroundColor: COLORS.card,
     borderRadius: 16,
