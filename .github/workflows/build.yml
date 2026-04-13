@@ -3,7 +3,6 @@ name: Build Android APK
 on:
   push:
     branches:
-      - master
       - main
   workflow_dispatch:
 
@@ -17,11 +16,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: |
-          npm install --no-audit
+        run: npm install
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -35,31 +32,11 @@ jobs:
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      - name: Build Debug APK (with bundled JS)
-        run: |
-          # Install watchman for react-native
-          sudo apt-get update && sudo apt-get install -y watchman || true
-          
-          # Bundle JS into the APK so it works standalone
-          mkdir -p android/app/src/main/assets
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res/ \
-            --reset-cache || true
-          
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m" --stacktrace
-
-      - name: Build Release APK
-        if: always()
+      - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m" --stacktrace || true
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload Debug APK
         if: success()
@@ -67,12 +44,3 @@ jobs:
         with:
           name: debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
-
-      - name: Upload Release APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 7
