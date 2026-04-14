@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler, useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import axios from 'axios';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // API地址 - 支持双栈
 const API_BASE_V4 = 'http://100.106.29.60:3000';
@@ -10,7 +11,26 @@ const API_BASE_V6 = 'http://[fd7a:115c:a1e0::8a01:1dcc]:3000';
 const TIMEOUT = 3000;
 const TIMEOUT_SLOW = 8000;
 
-const COLORS = { primary: '#2196F3', success: '#4CAF50', error: '#F44336', warning: '#FF9800', background: '#F5F5F5', card: '#FFFFFF', text: '#212121', textSecondary: '#757575', border: '#E0E0E0' };
+// 深色模式检测
+const useSystemColorScheme = () => {
+  const [colorScheme, setColorScheme] = useState(() => {
+    return useColorScheme() || 'light';
+  });
+  return colorScheme;
+};
+
+// 深色模式颜色
+const getColors = (isDark) => ({
+  primary: '#2196F3',
+  success: '#4CAF50',
+  error: '#F44336',
+  warning: '#FF9800',
+  background: isDark ? '#121212' : '#F5F5F5',
+  card: isDark ? '#1E1E1E' : '#FFFFFF',
+  text: isDark ? '#FFFFFF' : '#212121',
+  textSecondary: isDark ? '#B0B0B0' : '#757575',
+  border: isDark ? '#333333' : '#E0E0E0',
+});
 
 const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites' };
 const saveData = async (k, d) => { try { await AsyncStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
@@ -42,61 +62,85 @@ const showToast = (msg, type = 'info') => {
 };
 
 export default function App() {
+  const colorScheme = useSystemColorScheme();
+  const [isDark, setIsDark] = useState(colorScheme === 'dark');
   const [screen, setScreen] = useState('login');
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toastMsg, setToastMsg] = useState('');
-  const [toastBg, setToastBg] = useState(COLORS.primary);
+  const [toastBg, setToastBg] = useState('#2196F3');
   const [toastVis, setToastVis] = useState(false);
+  const [prevScreen, setPrevScreen] = useState('home'); // 用于返回
+  
+  const COLORS = getColors(isDark);
 
   toastRef = { show: (msg, bg) => { setToastMsg(msg); setToastBg(bg); setToastVis(true); setTimeout(() => setToastVis(false), 2500); } };
 
-  // 侧滑返回处理
+  // 切换深色模式
+  const toggleDarkMode = useCallback(() => setIsDark(d => !d), []);
+
+  // 物理返回键处理
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (screen === 'home') return false; // 退出应用
-      onBack(); // 返回上一页面
+      if (screen === 'login') {
+        BackHandler.exitApp();
+        return true;
+      }
+      onBack();
       return true;
     });
     return () => backHandler.remove();
-  }, [screen]);
+  }, [screen, prevScreen]);
 
   useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); if (u) { setUser(u); setScreen('home'); } setLoading(false); })(); }, []);
 
-  const goTo = (newScreen) => setScreen(newScreen);
-  const onBack = () => setScreen(prevScreen || 'home');
-  let prevScreen = 'home';
-  const handleLogin = (u) => { setUser(u); setScreen('home'); prevScreen = 'login'; };
-  const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); prevScreen = 'home'; };
+  const goTo = (newScreen) => { 
+    setPrevScreen(screen);
+    setScreen(newScreen); 
+  };
+  const onBack = () => { 
+    setScreen(prevScreen); 
+  };
+  const handleLogin = (u) => { setUser(u); setPrevScreen('login'); setScreen('home'); };
+  const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); };
 
-  if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>加载中...</Text></View>;
+  if (loading) return <View style={[styles.loading, { backgroundColor: COLORS.background }]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={[styles.loadingText, { color: COLORS.textSecondary }]}>加载中...</Text></View>;
 
-  // 记录prevScreen
-  useEffect(() => { if (screen !== 'home' && screen !== 'login') prevScreen = screen; }, [screen]);
+  // 渲染各页面
+  const renderScreen = () => {
+    switch (screen) {
+      case 'login': return <LoginScreen onLogin={handleLogin} COLORS={COLORS} />;
+      case 'home': return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
+      case 'learn': return <LearnScreen onBack={onBack} COLORS={COLORS} />;
+      case 'practice': return <PracticeScreen onBack={onBack} COLORS={COLORS} />;
+      case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
+      case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
+      default: return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
+    }
+  };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+    <GestureHandlerRootView style={[styles.container, { backgroundColor: COLORS.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={COLORS.background} />
       {toastVis && <View style={[styles.toast, { backgroundColor: toastBg }]}><Text style={styles.toastTxt}>{toastMsg}</Text></View>}
-      {screen === 'login' ? <LoginScreen onLogin={handleLogin} /> :
-       <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} />}
-      {screen !== 'login' && <BottomBar current={screen} onChange={goTo} />}
-    </View>
+      {renderScreen()}
+      {screen !== 'login' && <BottomBar current={screen} onChange={goTo} COLORS={COLORS} />}
+    </GestureHandlerRootView>
   );
 }
 
-function BottomBar({ current, onChange }) {
+function BottomBar({ current, onChange, COLORS }) {
   const tabs = [{ k: 'home', i: '🏠', l: '首页' }, { k: 'learn', i: '📚', l: '学习' }, { k: 'practice', i: '✍️', l: '刷题' }, { k: 'wrong', i: '📝', l: '错题' }, { k: 'fav', i: '❤️', l: '收藏' }];
-  return <View style={tabStyles.bar}>{tabs.map(t => <TouchableOpacity key={t.k} style={tabStyles.item} onPress={() => onChange(t.k)}><Text style={[tabStyles.icon, current === t.k && tabStyles.active]}>{t.i}</Text><Text style={[tabStyles.label, current === t.k && tabStyles.activeLabel]}>{t.l}</Text></TouchableOpacity>)}</View>;
+  return <View style={[tabStyles.bar, { backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: Platform.OS === 'ios' ? 20 : 8 }]}>{tabs.map(t => <TouchableOpacity key={t.k} style={tabStyles.item} onPress={() => onChange(t.k)}><Text style={[tabStyles.icon, { opacity: current === t.k ? 1 : 0.5 }]}>{t.i}</Text><Text style={[tabStyles.label, { color: current === t.k ? COLORS.primary : COLORS.textSecondary, fontSize: 10 }]}>{t.l}</Text></TouchableOpacity>)}</View>;
 }
-const tabStyles = StyleSheet.create({ bar: { flexDirection: 'row', backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: Platform.OS === 'ios' ? 20 : 8 }, item: { flex: 1, alignItems: 'center' }, icon: { fontSize: 20, opacity: 0.5 }, active: { opacity: 1 }, label: { fontSize: 10, color: COLORS.textSecondary }, activeLabel: { color: COLORS.primary, fontWeight: '600' } });
+const tabStyles = StyleSheet.create({ bar: { flexDirection: 'row', paddingTop: 8 }, item: { flex: 1, alignItems: 'center' }, icon: { fontSize: 20 }, label: { fontWeight: '600' } });
 
-function LoadingView({ text = '加载中...' }) {
-  return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>{text}</Text></View>;
+function LoadingView({ text = '加载中...', COLORS }) {
+  return <View style={[styles.loading, { backgroundColor: COLORS.background }]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={[styles.loadingText, { color: COLORS.textSecondary }]}>{text}</Text></View>;
 }
 
 // ==================== 登录 ====================
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, COLORS }) {
   const [isReg, setIsReg] = useState(false);
   const [user, setUser] = useState('');
   const [pwd, setPwd] = useState('');
@@ -121,94 +165,100 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <SafeAreaView style={styles.loginContainer}>
-      <View style={styles.loginBox}>
-        <Text style={styles.title}>🎯 面试大师</Text>
-        <Text style={styles.subtitle}>{isReg ? '创建账号' : '登录学习'}</Text>
-        <View style={styles.tabRow}>
-          <TouchableOpacity style={[styles.tab, !isReg && styles.tabActive]} onPress={() => setIsReg(false)}><Text style={[styles.tabText, !isReg && styles.tabTextActive]}>登录</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, isReg && styles.tabActive]} onPress={() => setIsReg(true)}><Text style={[styles.tabText, isReg && styles.tabTextActive]}>注册</Text></TouchableOpacity>
+    <SafeAreaView style={[styles.loginContainer, { backgroundColor: COLORS.background }]}>
+      <View style={[styles.loginBox, { backgroundColor: COLORS.card }]}>
+        <Text style={[styles.title, { color: COLORS.primary }]}>🎯 面试大师</Text>
+        <Text style={[styles.subtitle, { color: COLORS.textSecondary }]}>{isReg ? '创建账号' : '登录学习'}</Text>
+        <View style={[styles.tabRow, { backgroundColor: COLORS.background }]}>
+          <TouchableOpacity style={[styles.tab, !isReg && styles.tabActive, { backgroundColor: !isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(false)}><Text style={[styles.tabText, !isReg && styles.tabTextActive, { color: !isReg ? '#fff' : COLORS.textSecondary }]}>登录</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tab, isReg && styles.tabActive, { backgroundColor: isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(true)}><Text style={[styles.tabText, isReg && styles.tabTextActive, { color: isReg ? '#fff' : COLORS.textSecondary }]}>注册</Text></TouchableOpacity>
         </View>
-        <TextInput style={styles.input} placeholder="用户名" value={user} onChangeText={setUser} autoCapitalize="none" placeholderTextColor="#999" />
-        <TextInput style={styles.input} placeholder="密码" value={pwd} onChangeText={setPwd} secureTextEntry placeholderTextColor="#999" />
-        <TouchableOpacity style={styles.btn} onPress={handleSubmit} disabled={loading}>
+        <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="用户名" value={user} onChangeText={setUser} autoCapitalize="none" placeholderTextColor={COLORS.textSecondary} />
+        <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="密码" value={pwd} onChangeText={setPwd} secureTextEntry placeholderTextColor={COLORS.textSecondary} />
+        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)}><Text style={styles.linkText}>{isReg ? '登录' : '注册'}</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.guestBtn} onPress={handleGuest}><Text style={styles.guestText}>游客模式</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)}><Text style={[styles.linkText, { color: COLORS.primary }]}>{isReg ? '登录' : '注册'}</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.guestBtn} onPress={handleGuest}><Text style={[styles.guestText, { color: COLORS.textSecondary }]}>游客模式</Text></TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
 // ==================== 首页 ====================
-function HomeScreen({ user, onNavigate, onLogout }) {
+function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode }) {
   const [stat, setStat] = useState({ questions: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); }, []);
 
   return (
-    <ScrollView style={styles.screen}>
-      <View style={styles.header}>
-        <View><Text style={styles.headerTitle}>欢迎，{user?.username}</Text><Text style={styles.headerSub}>{user?.isGuest ? '游客' : '已登录'}</Text></View>
+    <ScrollView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <View style={[styles.header, { backgroundColor: COLORS.primary, paddingTop: Platform.OS === 'android' ? 50 : 60 }]}>
+        <View><Text style={[styles.headerTitle, { color: '#fff' }]}>欢迎，{user?.username}</Text><Text style={[styles.headerSub, { color: 'rgba(255,255,255,0.8)' }]}>{user?.isGuest ? '游客' : '已登录'}</Text></View>
         <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}><Text style={styles.logoutText}>退出</Text></TouchableOpacity>
       </View>
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>{loading ? <ActivityIndicator color={COLORS.primary} /> : <><Text style={styles.statNum}>{stat.questions}</Text><Text style={styles.statLabel}>题库</Text></>}</View>
+      {/* 深色模式切换 */}
+      <TouchableOpacity style={[styles.darkModeBtn, { backgroundColor: COLORS.card }]} onPress={toggleDarkMode}>
+        <Text style={styles.darkModeIcon}>{isDark ? '🌙' : '☀️'}</Text>
+        <Text style={[styles.darkModeText, { color: COLORS.text }]}>{isDark ? '深色' : '浅色'}模式</Text>
+      </TouchableOpacity>
+      <View style={[styles.statsContainer, { padding: 16, marginTop: -20 }]}>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card }]}>{loading ? <ActivityIndicator color={COLORS.primary} /> : <><Text style={[styles.statNum, { color: COLORS.primary }]}>{stat.questions}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>题库</Text></>}</View>
       </View>
-      <Text style={styles.sectionTitle}>核心功能</Text>
-      <MenuCard title="知识学习" desc="系统化学体系" icon="📚" color="#4CAF50" on={() => onNavigate('learn')} />
-      <MenuCard title="智能刷题" desc="NAS+AI双模式" icon="✍️" color="#2196F3" on={() => onNavigate('practice')} />
-      <MenuCard title="错题本" desc="查漏补缺" icon="📝" color="#F44336" on={() => onNavigate('wrong')} />
-      <MenuCard title="收藏夹" desc="收藏题目" icon="❤️" color="#9C27B0" on={() => onNavigate('fav')} />
+      <Text style={[styles.sectionTitle, { color: COLORS.text }]}>核心功能</Text>
+      <MenuCard title="知识学习" desc="系统化学体系" icon="📚" color="#4CAF50" on={() => onNavigate('learn')} COLORS={COLORS} />
+      <MenuCard title="智能刷题" desc="NAS+AI双模式" icon="✍️" color="#2196F3" on={() => onNavigate('practice')} COLORS={COLORS} />
+      <MenuCard title="错题本" desc="查漏补缺" icon="📝" color="#F44336" on={() => onNavigate('wrong')} COLORS={COLORS} />
+      <MenuCard title="收藏夹" desc="收藏题目" icon="❤️" color="#9C27B0" on={() => onNavigate('fav')} COLORS={COLORS} />
     </ScrollView>
   );
 }
 
-function MenuCard({ title, desc, icon, color, on }) {
-  return <TouchableOpacity style={styles.menuCard} onPress={on}><View style={[styles.menuIcon, { backgroundColor: color }]}><Text style={{ fontSize: 28 }}>{icon}</Text></View><View style={styles.menuCon}><Text style={styles.menuTitle}>{title}</Text><Text style={styles.menuDesc}>{desc}</Text></View></TouchableOpacity>;
+function MenuCard({ title, desc, icon, color, on, COLORS }) {
+  return <TouchableOpacity style={[styles.menuCard, { backgroundColor: COLORS.card }]} onPress={on}><View style={[styles.menuIcon, { backgroundColor: color }]}><Text style={{ fontSize: 28 }}>{icon}</Text></View><View style={styles.menuCon}><Text style={[styles.menuTitle, { color: COLORS.text }]}>{title}</Text><Text style={[styles.menuDesc, { color: COLORS.textSecondary }]}>{desc}</Text></View></TouchableOpacity>;
 }
 
 // ==================== 学习 ====================
-function LearnScreen({ onBack }) {
+function LearnScreen({ onBack, COLORS }) {
   const [cats, setCats] = useState({});
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // 从API加载分类
   useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
 
-  if (loading) return <LoadingView text="加载分类..." />;
+  if (loading) return <LoadingView text="加载分类..." COLORS={COLORS} />;
   if (!selectedCat) return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>📚 知识学习</Text>
-      <Text style={styles.desc}>选择分类开始学习</Text>
-      <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={styles.catCard} onPress={() => setSelectedCat(c)}><Text style={styles.catText}>{c}</Text><Text style={styles.catSub}>{cats[c]?.length || 0}个</Text></TouchableOpacity>)}</View>
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 知识学习</Text>
+      <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始学习</Text>
+      <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedCat(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{cats[c]?.length || 0}个</Text></TouchableOpacity>)}</View>
     </SafeAreaView>
   );
   if (!selectedSub) return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedCat(null)}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>📚 {selectedCat}</Text>
-      <View style={styles.catGrid}>{(cats[selectedCat] || []).map((s, i) => <TouchableOpacity key={i} style={styles.catCard} onPress={() => setSelectedSub(s)}><Text style={styles.catText}>{s}</Text></TouchableOpacity>)}</View>
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 {selectedCat}</Text>
+      <View style={styles.catGrid}>{(cats[selectedCat] || []).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text></TouchableOpacity>)}</View>
     </SafeAreaView>
   );
   return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedSub(null)}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>📖 {selectedCat} · {selectedSub}</Text>
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📖 {selectedCat} · {selectedSub}</Text>
       <ScrollView style={{ flex: 1, padding: 16 }}>
-        <TouchableOpacity style={styles.articleCard}><Text style={styles.articleTitle}>📖 知识文章</Text><Text style={styles.articleDesc}>系统化学习该知识点</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: '#E3F2FD' }]}><Text style={styles.articleTitle}>✍️ 对应题库</Text><Text style={styles.articleDesc}>学习后刷题巩固</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.articleCard, { backgroundColor: COLORS.card }]}><Text style={[styles.articleTitle, { color: COLORS.text }]}>📖 知识文章</Text><Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>系统化学习该知识点</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]}><Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 对应题库</Text><Text style={styles.articleDesc}>学习后刷题巩固</Text></TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 // ==================== 刷题 ====================
-function PracticeScreen({ onBack }) {
+function PracticeScreen({ onBack, COLORS }) {
   const [mode, setMode] = useState('select');
   const [qs, setQs] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -217,14 +267,14 @@ function PracticeScreen({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [cat, setCat] = useState('all');
   const [count, setCount] = useState(50);
-  const [difficulty, setDifficulty] = useState('all'); // 新增难度选择
+  const [difficulty, setDifficulty] = useState('all');
 
   const [user, setUser] = useState(null);
   useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); setUser(u); })(); }, []);
 
   const cats = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '操作系统', '数据库', '设计模式', '数据结构', 'AI', 'Agent'];
   const counts = [20, 50, 100, 150, 200];
-  const difficulties = ['all', '简单', '中等', '困难', '混合']; // 难度选项
+  const difficulties = ['all', '简单', '中等', '困难', '混合'];
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   const loadQuestions = async () => {
@@ -239,6 +289,7 @@ function PracticeScreen({ onBack }) {
     setLoading(false);
   };
 
+  // 错题立即记录
   const handleAnswer = async (ans) => {
     if (showResult) return;
     setSelected(ans); setShowResult(true);
@@ -246,11 +297,11 @@ function PracticeScreen({ onBack }) {
     if (ans !== q.answer) {
       // 登录用户存NAS，游客存本地
       if (user && !user.isGuest && user.token) {
-        try { await apiPost('/api/wrong-answers', { question_id: q.id, wrong_option: ans, answered_at: new Date().toISOString() }, true); } catch (e) {}
+        try { await apiPost('/api/wrong-answers', { question_id: q.id, wrong_option: ans, answered_at: new Date().toISOString() }, true); showToast('已记录错题', 'error'); } catch (e) {}
       } else {
         const wrongList = await getData(STORAGE_KEYS.WRONG) || [];
-        wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_count: 1, answered_at: new Date().toISOString() });
-        await saveData(STORAGE_KEYS.WRONG, wrongList);
+        wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_option: ans, answered_at: new Date().toISOString() });
+        await saveData(STORAGE_KEYS.WRONG, wrongList); showToast('已记录错题', 'error');
       }
     }
   };
@@ -268,21 +319,21 @@ function PracticeScreen({ onBack }) {
   };
 
   if (mode === 'select') return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>✍️ 智能刷题</Text>
-      {loading ? <LoadingView /> : (
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>✍️ 智能刷题</Text>
+      {loading ? <LoadingView COLORS={COLORS} /> : (
         <>
-          <Text style={styles.label}>分类</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{cats.map(c => <TouchableOpacity key={c} style={[styles.chip, cat === c && styles.chipActive]} onPress={() => setCat(c)}><Text style={[styles.chipText, cat === c && styles.chipTextActive]}>{c === 'all' ? '全部' : c}</Text></TouchableOpacity>)}</ScrollView>
+          <Text style={[styles.label, { color: COLORS.textSecondary }]}>分类</Text>
+          <ScrollView horizontal style={styles.chipScroll}>{cats.map(c => <TouchableOpacity key={c} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, cat === c && styles.chipActive]} onPress={() => setCat(c)}><Text style={[styles.chipText, { color: cat === c ? '#fff' : COLORS.text }]}>{c === 'all' ? '全部' : c}</Text></TouchableOpacity>)}</ScrollView>
           
-          <Text style={styles.label}>难度</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{difficulties.map(d => <TouchableOpacity key={d} style={[styles.chip, difficulty === d && styles.chipActive]} onPress={() => setDifficulty(d)}><Text style={[styles.chipText, difficulty === d && styles.chipTextActive]}>{d === 'all' ? '全部' : d}</Text></TouchableOpacity>)}</ScrollView>
+          <Text style={[styles.label, { color: COLORS.textSecondary }]}>难度</Text>
+          <ScrollView horizontal style={styles.chipScroll}>{difficulties.map(d => <TouchableOpacity key={d} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, difficulty === d && styles.chipActive]} onPress={() => setDifficulty(d)}><Text style={[styles.chipText, { color: difficulty === d ? '#fff' : COLORS.text }]}>{d === 'all' ? '全部' : d}</Text></TouchableOpacity>)}</ScrollView>
           
-          <Text style={styles.label}>数量</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{counts.map(c => <TouchableOpacity key={c} style={[styles.chip, count === c && styles.chipActive]} onPress={() => setCount(c)}><Text style={[styles.chipText, count === c && styles.chipTextActive]}>{c}题</Text></TouchableOpacity>)}</ScrollView>
+          <Text style={[styles.label, { color: COLORS.textSecondary }]}>数量</Text>
+          <ScrollView horizontal style={styles.chipScroll}>{counts.map(c => <TouchableOpacity key={c} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, count === c && styles.chipActive]} onPress={() => setCount(c)}><Text style={[styles.chipText, { color: count === c ? '#fff' : COLORS.text }]}>{c}题</Text></TouchableOpacity>)}</ScrollView>
           
-          <TouchableOpacity style={styles.startBtn} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题 ({count}题/{difficulty})</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.startBtn, { backgroundColor: COLORS.primary }]} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题 ({count}题/{difficulty})</Text></TouchableOpacity>
         </>
       )}
     </SafeAreaView>
@@ -290,25 +341,25 @@ function PracticeScreen({ onBack }) {
 
   const q = qs[idx];
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.progBar}><View style={[styles.progFill, { width: `${((idx + 1) / qs.length) * 100}%` }]} /></View>
-      <Text style={styles.progTxt}>{idx + 1}/{qs.length}</Text>
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <View style={[styles.progBar, { backgroundColor: COLORS.border }]}><View style={[styles.progFill, { width: `${((idx + 1) / qs.length) * 100}%`, backgroundColor: COLORS.primary }]} /></View>
+      <Text style={[styles.progTxt, { color: COLORS.textSecondary }]}>{idx + 1}/{qs.length}</Text>
       <ScrollView style={styles.qCon}>
-        <View style={styles.qHeader}><Text style={styles.qCat}>{q.category}</Text></View>
-        <Text style={styles.qTxt}>{q.question}</Text>
+        <View style={styles.qHeader}><Text style={[styles.qCat, { color: COLORS.primary }]}>{q.category}</Text></View>
+        <Text style={[styles.qTxt, { color: COLORS.text }]}>{q.question}</Text>
         {q.options.map((o, i) => {
           let bg = COLORS.card, bc = COLORS.border;
           if (showResult) { if (o === q.answer) { bg = '#E8F5E9'; bc = COLORS.success; } else if (o === selected) { bg = '#FFEBEE'; bc = COLORS.error; } }
-          return <TouchableOpacity key={i} style={[styles.opt, { bg, bc }]} onPress={() => handleAnswer(o)} disabled={showResult}><Text style={styles.optTxt}>{o}</Text>{showResult && o === q.answer && '✓'}</TouchableOpacity>;
+          return <TouchableOpacity key={i} style={[styles.opt, { backgroundColor: bg, borderColor: bc }]} onPress={() => handleAnswer(o)} disabled={showResult}><Text style={[styles.optTxt, { color: COLORS.text }]}>{o}</Text>{showResult && o === q.answer && <Text style={{ color: COLORS.success }}>✓</Text>}</TouchableOpacity>;
         })}
       </ScrollView>
-      {showResult && <TouchableOpacity style={styles.nextBtn} onPress={next}><Text style={styles.nextBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>}
+      {showResult && <TouchableOpacity style={[styles.nextBtn, { backgroundColor: COLORS.primary }]} onPress={next}><Text style={styles.nextBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>}
     </SafeAreaView>
   );
 }
 
 // ==================== 错题 ====================
-function WrongScreen({ onBack }) {
+function WrongScreen({ onBack, COLORS }) {
   const [list, setList] = useState([]);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -324,20 +375,20 @@ function WrongScreen({ onBack }) {
     }
     setLoading(false);
   })(); }, []);
-  if (loading) return <LoadingView />;
+  if (loading) return <LoadingView COLORS={COLORS} />;
   return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>📝 错题本</Text>
-      <ScrollView>{list.length === 0 && <Text style={styles.empty}>🎉 暂无错题!</Text>}
-      {list.map((q, i) => <View key={i} style={styles.wrongCard}><Text style={styles.wrongCat}>{q.category}</Text><Text style={styles.wrongQ}>{q.question}</Text><Text style={styles.wrongA}>答案: {q.answer}</Text></View>)}
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📝 错题本</Text>
+      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
+      {list.map((q, i) => <View key={i} style={[styles.wrongCard, { backgroundColor: COLORS.card, borderLeftColor: COLORS.error }]}><Text style={[styles.wrongCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.wrongQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.wrongA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 // ==================== 收藏 ====================
-function FavScreen({ onBack }) {
+function FavScreen({ onBack, COLORS }) {
   const [list, setList] = useState([]);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -352,13 +403,13 @@ function FavScreen({ onBack }) {
     }
     setLoading(false);
   })(); }, []);
-  if (loading) return <LoadingView />;
+  if (loading) return <LoadingView COLORS={COLORS} />;
   return (
-    <SafeAreaView style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={styles.backBtnText}>← 返回</Text></TouchableOpacity>
-      <Text style={styles.screenTitle}>❤️ 收藏夹</Text>
-      <ScrollView>{list.length === 0 && <Text style={styles.empty}>暂无收藏!</Text>}
-      {list.map((q, i) => <View key={i} style={styles.favCard}><Text style={styles.favCat}>{q.category}</Text><Text style={styles.favQ}>{q.question}</Text><Text style={styles.favA}>答案: {q.answer}</Text></View>)}
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>❤️ 收藏夹</Text>
+      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
+      {list.map((q, i) => <View key={i} style={[styles.favCard, { backgroundColor: COLORS.card, borderLeftColor: '#9C27B0' }]}><Text style={[styles.favCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.favQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.favA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
       </ScrollView>
     </SafeAreaView>
   );
@@ -366,80 +417,83 @@ function FavScreen({ onBack }) {
 
 // ==================== 样式 ====================
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, color: COLORS.textSecondary },
+  loadingText: { marginTop: 10 },
   toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, padding: 14, borderRadius: 10, elevation: 10 },
   toastTxt: { color: '#fff', fontSize: 14, textAlign: 'center' },
   loginContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loginBox: { width: SCREEN_WIDTH * 0.85, backgroundColor: COLORS.card, borderRadius: 20, padding: 24, elevation: 5 },
-  title: { fontSize: 32, fontWeight: 'bold', textAlign: 'center', color: COLORS.primary },
-  subtitle: { fontSize: 14, textAlign: 'center', color: COLORS.textSecondary, marginBottom: 24 },
-  tabRow: { flexDirection: 'row', marginBottom: 20, backgroundColor: COLORS.background, borderRadius: 10, padding: 4 },
+  loginBox: { width: SCREEN_WIDTH * 0.85, borderRadius: 20, padding: 24, elevation: 5 },
+  title: { fontSize: 32, fontWeight: 'bold', textAlign: 'center' },
+  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 24 },
+  tabRow: { flexDirection: 'row', marginBottom: 20, borderRadius: 10, padding: 4 },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 8 },
-  tabActive: { backgroundColor: COLORS.primary },
-  tabText: { fontSize: 16, fontWeight: '600', color: COLORS.textSecondary },
+  tabActive: {},
+  tabText: { fontSize: 16, fontWeight: '600' },
   tabTextActive: { color: '#fff' },
-  input: { backgroundColor: COLORS.background, borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, borderWidth: 1, borderColor: COLORS.border },
-  btn: { backgroundColor: COLORS.primary, borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 8 },
+  input: { borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, borderWidth: 1 },
+  btn: { borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 8 },
   btnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   linkBtn: { marginTop: 16, alignItems: 'center' },
-  linkText: { color: COLORS.primary, fontSize: 14 },
+  linkText: { fontSize: 14 },
   guestBtn: { marginTop: 20, alignItems: 'center' },
-  guestText: { color: COLORS.textSecondary, fontSize: 14 },
-  screen: { flex: 1, backgroundColor: COLORS.background },
-  header: { backgroundColor: COLORS.primary, padding: 20, paddingTop: Platform.OS === 'android' ? 40 : 50, flexDirection: 'row', justifyContent: 'space-between' },
+  guestText: { fontSize: 14 },
+  screen: { flex: 1 },
+  header: { padding: 20, flexDirection: 'row', justifyContent: 'space-between' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
   headerSub: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
   logoutBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
   logoutText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  darkModeBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 16, padding: 16, borderRadius: 12 },
+  darkModeIcon: { fontSize: 24, marginRight: 12 },
+  darkModeText: { fontSize: 16, fontWeight: '600' },
   statsContainer: { padding: 16, marginTop: -20 },
-  statCard: { backgroundColor: COLORS.card, borderRadius: 12, padding: 20, alignItems: 'center', elevation: 3 },
-  statNum: { fontSize: 32, fontWeight: 'bold', color: COLORS.primary },
-  statLabel: { fontSize: 14, color: COLORS.textSecondary },
+  statCard: { borderRadius: 12, padding: 20, alignItems: 'center', elevation: 3 },
+  statNum: { fontSize: 32, fontWeight: 'bold' },
+  statLabel: { fontSize: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '600', margin: 16, marginTop: 8 },
-  menuCard: { flexDirection: 'row', backgroundColor: COLORS.card, marginHorizontal: 16, marginBottom: 12, borderRadius: 12, padding: 16, elevation: 2 },
+  menuCard: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, borderRadius: 12, padding: 16, elevation: 2 },
   menuIcon: { width: 52, height: 52, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   menuCon: { marginLeft: 16, flex: 1 },
   menuTitle: { fontSize: 16, fontWeight: '600' },
-  menuDesc: { fontSize: 13, color: COLORS.textSecondary },
-  backBtn: { padding: 12, paddingTop: Platform.OS === 'android' ? 12 : 50 },
-  backBtnText: { fontSize: 16, color: COLORS.primary, fontWeight: '600' },
+  menuDesc: { fontSize: 13 },
+  backBtn: { padding: 12 },
+  backBtnText: { fontSize: 16, fontWeight: '600' },
   screenTitle: { fontSize: 24, fontWeight: 'bold', margin: 16 },
-  desc: { fontSize: 14, color: COLORS.textSecondary, marginHorizontal: 16, marginBottom: 16 },
+  desc: { fontSize: 14, marginHorizontal: 16, marginBottom: 16 },
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12 },
-  catCard: { width: '46%', backgroundColor: COLORS.card, borderRadius: 12, padding: 16, margin: '2%', alignItems: 'center', elevation: 2 },
+  catCard: { width: '46%', borderRadius: 12, padding: 16, margin: '2%', alignItems: 'center', elevation: 2 },
   catText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  catSub: { fontSize: 12, color: COLORS.textSecondary },
-  label: { fontSize: 14, marginLeft: 16, marginTop: 12, color: COLORS.textSecondary },
+  catSub: { fontSize: 12 },
+  label: { fontSize: 14, marginLeft: 16, marginTop: 12 },
   chipScroll: { paddingHorizontal: 12, marginVertical: 8 },
-  chip: { backgroundColor: COLORS.card, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginHorizontal: 4, borderWidth: 1, borderColor: COLORS.border },
-  chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginHorizontal: 4, borderWidth: 1 },
+  chipActive: {},
   chipText: { fontSize: 14 },
   chipTextActive: { color: '#fff' },
-  startBtn: { backgroundColor: COLORS.primary, margin: 16, padding: 16, borderRadius: 12, alignItems: 'center', elevation: 3 },
+  startBtn: { margin: 16, padding: 16, borderRadius: 12, alignItems: 'center', elevation: 3 },
   startBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  progBar: { height: 4, backgroundColor: COLORS.border },
-  progFill: { height: '100%', backgroundColor: COLORS.primary },
-  progTxt: { textAlign: 'center', padding: 8, color: COLORS.textSecondary },
+  progBar: { height: 4 },
+  progFill: { height: '100%' },
+  progTxt: { textAlign: 'center', padding: 8 },
   qCon: { flex: 1, padding: 16 },
   qHeader: { marginBottom: 12 },
-  qCat: { fontSize: 13, color: COLORS.primary },
+  qCat: { fontSize: 13 },
   qTxt: { fontSize: 18, fontWeight: '600', marginBottom: 20, lineHeight: 26 },
   opt: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 2 },
   optTxt: { fontSize: 16, flex: 1 },
-  nextBtn: { backgroundColor: COLORS.primary, margin: 16, padding: 16, borderRadius: 12, alignItems: 'center' },
+  nextBtn: { margin: 16, padding: 16, borderRadius: 12, alignItems: 'center' },
   nextBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  empty: { textAlign: 'center', color: COLORS.textSecondary, marginTop: 60, fontSize: 16 },
-  wrongCard: { backgroundColor: COLORS.card, margin: 16, marginBottom: 12, borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: COLORS.error },
-  wrongCat: { fontSize: 12, color: COLORS.textSecondary },
+  empty: { textAlign: 'center', marginTop: 60, fontSize: 16 },
+  wrongCard: { margin: 16, marginBottom: 12, borderRadius: 12, padding: 16, borderLeftWidth: 4 },
+  wrongCat: { fontSize: 12 },
   wrongQ: { fontSize: 15, marginVertical: 8 },
-  wrongA: { fontSize: 14, color: COLORS.success },
-  favCard: { backgroundColor: COLORS.card, margin: 16, marginBottom: 12, borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: '#9C27B0' },
-  favCat: { fontSize: 12, color: COLORS.textSecondary },
+  wrongA: { fontSize: 14 },
+  favCard: { margin: 16, marginBottom: 12, borderRadius: 12, padding: 16, borderLeftWidth: 4 },
+  favCat: { fontSize: 12 },
   favQ: { fontSize: 15, marginVertical: 8 },
-  favA: { fontSize: 14, color: COLORS.success },
-  articleCard: { backgroundColor: COLORS.card, padding: 20, borderRadius: 12, marginTop: 12 },
+  favA: { fontSize: 14 },
+  articleCard: { padding: 20, borderRadius: 12, marginTop: 12 },
   articleTitle: { fontSize: 18, fontWeight: '600' },
-  articleDesc: { fontSize: 14, color: COLORS.textSecondary, marginTop: 8 },
+  articleDesc: { fontSize: 14, marginTop: 8 },
 });
