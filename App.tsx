@@ -132,7 +132,7 @@ function LoginScreen({ onLogin }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.loginBox, { marginTop: 40 }]}>
+      <View style={[styles.loginBox, { marginTop: 10 }]}>
         <Text style={styles.title}>🎯 面试大师</Text>
         <Text style={styles.subtitle}>求职面试必备</Text>
         <View style={styles.tabRow}>
