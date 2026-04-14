@@ -219,7 +219,8 @@ function PracticeScreen({ onBack }) {
   const [count, setCount] = useState(50);
   const [difficulty, setDifficulty] = useState('all'); // 新增难度选择
 
-  const user = global.user; // 需要从存储获取
+  const [user, setUser] = useState(null);
+  useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); setUser(u); })(); }, []);
 
   const cats = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '操作系统', '数据库', '设计模式', '数据结构', 'AI', 'Agent'];
   const counts = [20, 50, 100, 150, 200];
