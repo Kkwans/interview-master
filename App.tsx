@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler } from 'react-native';
 import axios from 'axios';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -34,7 +34,7 @@ const apiPost = async (url, data, useSlow = false) => {
   }
 };
 
-// Toast引用
+// Toast
 let toastRef = { show: () => {} };
 const showToast = (msg, type = 'info') => {
   const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
@@ -51,13 +51,28 @@ export default function App() {
 
   toastRef = { show: (msg, bg) => { setToastMsg(msg); setToastBg(bg); setToastVis(true); setTimeout(() => setToastVis(false), 2500); } };
 
+  // 侧滑返回处理
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen === 'home') return false; // 退出应用
+      onBack(); // 返回上一页面
+      return true;
+    });
+    return () => backHandler.remove();
+  }, [screen]);
+
   useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); if (u) { setUser(u); setScreen('home'); } setLoading(false); })(); }, []);
 
   const goTo = (newScreen) => setScreen(newScreen);
-  const handleLogin = (u) => { setUser(u); setScreen('home'); };
-  const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); };
+  const onBack = () => setScreen(prevScreen || 'home');
+  let prevScreen = 'home';
+  const handleLogin = (u) => { setUser(u); setScreen('home'); prevScreen = 'login'; };
+  const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); prevScreen = 'home'; };
 
   if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>加载中...</Text></View>;
+
+  // 记录prevScreen
+  useEffect(() => { if (screen !== 'home' && screen !== 'login') prevScreen = screen; }, [screen]);
 
   return (
     <View style={styles.container}>
@@ -95,7 +110,12 @@ function LoginScreen({ onLogin }) {
     try {
       const url = isReg ? '/api/register' : '/api/login';
       const res = await apiPost(url, { username: user, password: pwd }, true);
-      if (res.token) { const ud = { id: res.userId, username: user, token: res.token, isGuest: false }; await saveData(STORAGE_KEYS.USER, ud); onLogin(ud); showToast(isReg ? '注册成功' : '登录成功', 'success'); }
+      if (res.token) { 
+        const ud = { id: res.userId, username: user, token: res.token, isGuest: false }; 
+        await saveData(STORAGE_KEYS.USER, ud); 
+        onLogin(ud); 
+        showToast(isReg ? '注册成功' : '登录成功', 'success'); 
+      }
     } catch (e) { showToast(e.response?.data?.error || '网络超时', 'error'); }
     setLoading(false);
   };
@@ -157,13 +177,7 @@ function LearnScreen({ onBack }) {
   const [selectedSub, setSelectedSub] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    apiGet('/api/categories', true).then(r => {
-      const m = {};
-      r.forEach(c => { m[c.name] = c.children || []; });
-      setCats(m);
-    }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
 
   if (loading) return <LoadingView text="加载分类..." />;
   if (!selectedCat) return (
@@ -203,15 +217,20 @@ function PracticeScreen({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [cat, setCat] = useState('all');
   const [count, setCount] = useState(50);
+  const [difficulty, setDifficulty] = useState('all'); // 新增难度选择
+
+  const user = global.user; // 需要从存储获取
 
   const cats = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '操作系统', '数据库', '设计模式', '数据结构', 'AI', 'Agent'];
   const counts = [20, 50, 100, 150, 200];
+  const difficulties = ['all', '简单', '中等', '困难', '混合']; // 难度选项
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   const loadQuestions = async () => {
     setLoading(true);
     try {
-      const url = cat === 'all' ? `/api/questions?limit=${count}` : `/api/questions?category=${encodeURIComponent(cat)}&limit=${count}`;
+      let url = cat === 'all' ? `/api/questions?limit=${count}` : `/api/questions?category=${encodeURIComponent(cat)}&limit=${count}`;
+      if (difficulty !== 'all') url += `&difficulty=${encodeURIComponent(difficulty)}`;
       const r = await apiGet(url, true);
       if (Array.isArray(r)) { setQs(r.map(q => ({ ...q, options: shuffle([...q.options]) }))); setIdx(0); setMode('practice'); showToast('加载成功', 'success'); }
       else { showToast('加载失败', 'error'); }
@@ -224,13 +243,28 @@ function PracticeScreen({ onBack }) {
     setSelected(ans); setShowResult(true);
     const q = qs[idx];
     if (ans !== q.answer) {
-      const wrongList = await getData(STORAGE_KEYS.WRONG) || [];
-      wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_count: 1, answered_at: new Date().toISOString() });
-      await saveData(STORAGE_KEYS.WRONG, wrongList);
+      // 登录用户存NAS，游客存本地
+      if (user && !user.isGuest && user.token) {
+        try { await apiPost('/api/wrong-answers', { question_id: q.id, wrong_option: ans, answered_at: new Date().toISOString() }, true); } catch (e) {}
+      } else {
+        const wrongList = await getData(STORAGE_KEYS.WRONG) || [];
+        wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_count: 1, answered_at: new Date().toISOString() });
+        await saveData(STORAGE_KEYS.WRONG, wrongList);
+      }
     }
   };
 
   const next = () => { if (idx < qs.length - 1) { setIdx(idx + 1); setSelected(null); setShowResult(false); } else { showToast('完成！', 'success'); setMode('select'); } };
+
+  const toggleFavorite = async () => {
+    if (user && !user.isGuest && user.token) {
+      try { await apiPost('/api/favorites', { question_id: qs[idx].id }, true); showToast('已收藏', 'success'); } catch (e) {}
+    } else {
+      const favList = await getData(STORAGE_KEYS.FAVORITES) || [];
+      favList.push({ question_id: qs[idx].id, category: qs[idx].category, question: qs[idx].question, answer: qs[idx].answer, created_at: new Date().toISOString() });
+      await saveData(STORAGE_KEYS.FAVORITES, favList); showToast('已收藏', 'success');
+    }
+  };
 
   if (mode === 'select') return (
     <SafeAreaView style={styles.screen}>
@@ -240,9 +274,14 @@ function PracticeScreen({ onBack }) {
         <>
           <Text style={styles.label}>分类</Text>
           <ScrollView horizontal style={styles.chipScroll}>{cats.map(c => <TouchableOpacity key={c} style={[styles.chip, cat === c && styles.chipActive]} onPress={() => setCat(c)}><Text style={[styles.chipText, cat === c && styles.chipTextActive]}>{c === 'all' ? '全部' : c}</Text></TouchableOpacity>)}</ScrollView>
+          
+          <Text style={styles.label}>难度</Text>
+          <ScrollView horizontal style={styles.chipScroll}>{difficulties.map(d => <TouchableOpacity key={d} style={[styles.chip, difficulty === d && styles.chipActive]} onPress={() => setDifficulty(d)}><Text style={[styles.chipText, difficulty === d && styles.chipTextActive]}>{d === 'all' ? '全部' : d}</Text></TouchableOpacity>)}</ScrollView>
+          
           <Text style={styles.label}>数量</Text>
           <ScrollView horizontal style={styles.chipScroll}>{counts.map(c => <TouchableOpacity key={c} style={[styles.chip, count === c && styles.chipActive]} onPress={() => setCount(c)}><Text style={[styles.chipText, count === c && styles.chipTextActive]}>{c}题</Text></TouchableOpacity>)}</ScrollView>
-          <TouchableOpacity style={styles.startBtn} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题 ({count}题)</Text></TouchableOpacity>
+          
+          <TouchableOpacity style={styles.startBtn} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题 ({count}题/{difficulty})</Text></TouchableOpacity>
         </>
       )}
     </SafeAreaView>
@@ -270,8 +309,20 @@ function PracticeScreen({ onBack }) {
 // ==================== 错题 ====================
 function WrongScreen({ onBack }) {
   const [list, setList] = useState([]);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { (async () => { setList(await getData(STORAGE_KEYS.WRONG) || []); setLoading(false); })(); }, []);
+
+  useEffect(() => { (async () => { 
+    const u = await getData(STORAGE_KEYS.USER);
+    setUser(u);
+    // 登录用户从NAS获取，游客从本地获取
+    if (u && !u.isGuest && u.token) {
+      try { const r = await apiGet('/api/wrong-answers', true); setList(r || []); } catch (e) { setList([]); }
+    } else {
+      setList(await getData(STORAGE_KEYS.WRONG) || []);
+    }
+    setLoading(false);
+  })(); }, []);
   if (loading) return <LoadingView />;
   return (
     <SafeAreaView style={styles.screen}>
@@ -287,8 +338,19 @@ function WrongScreen({ onBack }) {
 // ==================== 收藏 ====================
 function FavScreen({ onBack }) {
   const [list, setList] = useState([]);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { (async () => { setList(await getData(STORAGE_KEYS.FAVORITES) || []); setLoading(false); })(); }, []);
+
+  useEffect(() => { (async () => { 
+    const u = await getData(STORAGE_KEYS.USER);
+    setUser(u);
+    if (u && !u.isGuest && u.token) {
+      try { const r = await apiGet('/api/favorites', true); setList(r || []); } catch (e) { setList([]); }
+    } else {
+      setList(await getData(STORAGE_KEYS.FAVORITES) || []);
+    }
+    setLoading(false);
+  })(); }, []);
   if (loading) return <LoadingView />;
   return (
     <SafeAreaView style={styles.screen}>
