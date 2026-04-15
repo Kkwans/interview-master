@@ -62,11 +62,10 @@ const apiPost = async (url, data, useSlow = false) => {
   }
 };
 
-// Toast
-let toastRef = { show: () => {} };
+// Toast工具（使用默认值）
+let toastRef = null;
 const showToast = (msg, type = 'info') => {
-  const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
-  toastRef.show(msg, bg);
+  if (toastRef) toastRef(msg, type);
 };
 
 export default function App() {
@@ -82,7 +81,15 @@ export default function App() {
   
   const COLORS = getColors(isDark);
 
-  toastRef = { show: (msg, bg) => { setToastMsg(msg); setToastBg(bg); setToastVis(true); setTimeout(() => setToastVis(false), 2500); } };
+  // Toast函数 - 引用App组件内的setter
+  const displayToast = useCallback((msg, type) => {
+    const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
+    setToastMsg(msg); setToastBg(bg); setToastVis(true);
+    setTimeout(() => setToastVis(false), 2000);
+  }, [COLORS]);
+
+  // 注册toast引用
+  toastRef = { show: displayToast };
 
   // 切换深色模式
   const toggleDarkMode = useCallback(() => setIsDark(d => !d), []);
