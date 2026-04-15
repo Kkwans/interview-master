@@ -321,26 +321,34 @@ function PracticeScreen({ onBack, COLORS }) {
   const [showResult, setShowResult] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cat, setCat] = useState('all');
-  const [count, setCount] = useState(50);
+  const [count, setCount] = useState(20);
   const [difficulty, setDifficulty] = useState('all');
+  const [source, setSource] = useState('nas'); // nas 或 ai
 
   const [user, setUser] = useState(null);
   useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); setUser(u); })(); }, []);
 
   const cats = ['all', 'Java基础', 'JVM', 'JUC', 'Redis', 'Kafka', '计算机网络', '操作系统', '数据库', '设计模式', '数据结构', 'AI', 'Agent'];
-  const counts = [20, 50, 100, 150, 200];
-  const difficulties = ['all', '简单', '中等', '困难', '混合'];
+  const counts = [10, 20, 50, 100];
+  const difficulties = ['all', '简单', '中等', '困难'];
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   const loadQuestions = async () => {
     setLoading(true);
     try {
-      let url = cat === 'all' ? `/api/questions?limit=${count}` : `/api/questions?category=${encodeURIComponent(cat)}&limit=${count}`;
-      if (difficulty !== 'all') url += `&difficulty=${encodeURIComponent(difficulty)}`;
+      let url;
+      if (source === 'nas') {
+        // NAS题库 - 支持三级分类
+        url = cat === 'all' ? `/api/public/questions?limit=${count}` : `/api/public/questions?category=${encodeURIComponent(cat)}&limit=${count}`;
+        if (difficulty !== 'all') url += `&difficulty=${encodeURIComponent(difficulty)}`;
+      } else {
+        // AI出题
+        url = `/api/ai/generate-questions?category=${encodeURIComponent(cat === 'all' ? 'Java基础' : cat)}&difficulty=${difficulty === 'all' ? 'medium' : difficulty}&count=${count}`;
+      }
       const r = await apiGet(url, true);
-      if (Array.isArray(r)) { setQs(r.map(q => ({ ...q, options: shuffle([...q.options]) }))); setIdx(0); setMode('practice'); showToast('加载成功', 'success'); }
-      else { showToast('加载失败', 'error'); }
-    } catch (e) { showToast('网络超时', 'error'); }
+      if (Array.isArray(r) && r.length > 0) { setQs(r.map(q => ({ ...q, options: shuffle([...q.options]) }))); setIdx(0); setMode('practice'); showToast(`加载成功 ${r.length}题`, 'success'); }
+      else { showToast('暂无题目', 'error'); }
+    } catch (e) { showToast('加载失败', 'error'); }
     setLoading(false);
   };
 
@@ -377,19 +385,36 @@ function PracticeScreen({ onBack, COLORS }) {
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
       <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>✍️ 智能刷题</Text>
-      {loading ? <LoadingView COLORS={COLORS} /> : (
-        <>
-          <Text style={[styles.label, { color: COLORS.textSecondary }]}>分类</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{cats.map(c => <TouchableOpacity key={c} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, cat === c && styles.chipActive]} onPress={() => setCat(c)}><Text style={[styles.chipText, { color: cat === c ? '#fff' : COLORS.text }]}>{c === 'all' ? '全部' : c}</Text></TouchableOpacity>)}</ScrollView>
+      {loading ? <LoadingView text="加载中..." COLORS={COLORS} /> : (
+        <ScrollView style={{ flex: 1, padding: 16 }}>
+          {/* 题源选择 */}
+          <Text style={[styles.label, { color: COLORS.textSecondary }]}>题源</Text>
+          <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+            <TouchableOpacity style={{ flex: 1, padding: 14, borderRadius: 10, backgroundColor: source === 'nas' ? COLORS.primary : COLORS.card, marginRight: 8 }} onPress={() => setSource('nas')}>
+              <Text style={{ textAlign: 'center', color: source === 'nas' ? '#fff' : COLORS.text, fontWeight: '600' }}>📚 NAS题库</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={{ flex: 1, padding: 14, borderRadius: 10, backgroundColor: source === 'ai' ? COLORS.primary : COLORS.card }} onPress={() => setSource('ai')}>
+              <Text style={{ textAlign: 'center', color: source === 'ai' ? '#fff' : COLORS.text, fontWeight: '600' }}>🤖 AI出题</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.label, { color: COLORS.textSecondary }]}>分类 {cat === 'all' ? '(全部)' : ''}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+            {cats.map(c => <TouchableOpacity key={c} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: cat === c ? COLORS.primary : COLORS.card, marginRight: 8 }} onPress={() => setCat(c)}><Text style={{ color: cat === c ? '#fff' : COLORS.text }}>{c === 'all' ? '全部' : c}</Text></TouchableOpacity>)}
+          </ScrollView>
           
           <Text style={[styles.label, { color: COLORS.textSecondary }]}>难度</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{difficulties.map(d => <TouchableOpacity key={d} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, difficulty === d && styles.chipActive]} onPress={() => setDifficulty(d)}><Text style={[styles.chipText, { color: difficulty === d ? '#fff' : COLORS.text }]}>{d === 'all' ? '全部' : d}</Text></TouchableOpacity>)}</ScrollView>
+          <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+            {difficulties.map(d => <TouchableOpacity key={d} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: difficulty === d ? COLORS.primary : COLORS.card, marginRight: 8 }} onPress={() => setDifficulty(d)}><Text style={{ color: difficulty === d ? '#fff' : COLORS.text }}>{d === 'all' ? '全部' : d}</Text></TouchableOpacity>)}
+          </View>
           
           <Text style={[styles.label, { color: COLORS.textSecondary }]}>数量</Text>
-          <ScrollView horizontal style={styles.chipScroll}>{counts.map(c => <TouchableOpacity key={c} style={[styles.chip, { backgroundColor: COLORS.card, borderColor: COLORS.border }, count === c && styles.chipActive]} onPress={() => setCount(c)}><Text style={[styles.chipText, { color: count === c ? '#fff' : COLORS.text }]}>{c}题</Text></TouchableOpacity>)}</ScrollView>
+          <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+            {counts.map(c => <TouchableOpacity key={c} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: count === c ? COLORS.primary : COLORS.card, marginRight: 8 }} onPress={() => setCount(c)}><Text style={{ color: count === c ? '#fff' : COLORS.text }}>{c}题</Text></TouchableOpacity>)}
+          </View>
           
-          <TouchableOpacity style={[styles.startBtn, { backgroundColor: COLORS.primary }]} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题 ({count}题/{difficulty})</Text></TouchableOpacity>
-        </>
+          <TouchableOpacity style={[styles.startBtn, { backgroundColor: COLORS.primary }]} onPress={loadQuestions}><Text style={styles.startBtnText}>开始刷题</Text></TouchableOpacity>
+        </ScrollView>
       )}
     </SafeAreaView>
   );
