@@ -115,6 +115,7 @@ export default function App() {
       case 'practice': return <PracticeScreen onBack={onBack} COLORS={COLORS} />;
       case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
       case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
+      case 'mock': return <MockScreen onBack={onBack} COLORS={COLORS} />;
       default: return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
     }
   };
@@ -211,6 +212,7 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
       <MenuCard title="智能刷题" desc="NAS+AI双模式" icon="✍️" color="#2196F3" on={() => onNavigate('practice')} COLORS={COLORS} />
       <MenuCard title="错题本" desc="查漏补缺" icon="📝" color="#F44336" on={() => onNavigate('wrong')} COLORS={COLORS} />
       <MenuCard title="收藏夹" desc="收藏题目" icon="❤️" color="#9C27B0" on={() => onNavigate('fav')} COLORS={COLORS} />
+      <MenuCard title="模拟面试" desc="AI真实面试" icon="🎯" color="#FF5722" on={() => onNavigate('mock')} COLORS={COLORS} />
     </ScrollView>
   );
 }
@@ -415,6 +417,85 @@ function FavScreen({ onBack, COLORS }) {
   );
 }
 
+// ==================== 模拟面试 ====================
+function MockScreen({ onBack, COLORS }) {
+  const [category, setCategory] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [current, setCurrent] = useState(0);
+  const [started, setStarted] = useState(false);
+  const [answer, setAnswer] = useState('');
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [cats, setCats] = useState({});
+
+  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(() => {}); }, []);
+
+  const startMock = async (cat) => {
+    setLoading(true);
+    try {
+      const res = await apiPost('/api/ai/generate-questions', { category: cat, count: 5 }, true);
+      setQuestions(res.questions || []);
+      setCategory(cat);
+      setStarted(true);
+      setCurrent(0);
+      setAnswer('');
+      setResult(null);
+    } catch (e) {
+      showToast('启动失败', 'error');
+    }
+    setLoading(false);
+  };
+
+  const submitAnswer = async () => {
+    if (!answer.trim()) { showToast('请输入答案', 'error'); return; }
+    setLoading(true);
+    try {
+      const res = await apiPost('/api/ai/score', { question: questions[current].question, answer: answer }, true);
+      setResult(res);
+    } catch (e) { showToast('评分失败', 'error'); }
+    setLoading(false);
+  };
+
+  const nextQ = () => {
+    if (current < questions.length - 1) { setCurrent(c => c + 1); setAnswer(''); setResult(null); }
+    else { showToast('面试完成!', 'success'); setStarted(false); }
+  };
+
+  if (!started) {
+    return (
+      <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+        <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+        <Text style={[styles.screenTitle, { color: COLORS.text }]}>🎯 模拟面试</Text>
+        <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始AI面试</Text>
+        <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => startMock(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>开始面试</Text></TouchableOpacity>)}</View>
+      </SafeAreaView>
+    );
+  }
+
+  if (questions.length === 0) return <LoadingView COLORS={COLORS} />;
+
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setStarted(false)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 退出</Text></TouchableOpacity>
+      <View style={[styles.qCon, { backgroundColor: COLORS.background }]}>
+        <Text style={[styles.qCat, { color: COLORS.textSecondary }]}>{category} • {current + 1}/{questions.length}</Text>
+        <Text style={[styles.qTxt, { color: COLORS.text }]}>{questions[current]?.question}</Text>
+        {!result && <>
+          <TextInput style={[styles.input, { backgroundColor: COLORS.card, color: COLORS.text, borderColor: COLORS.border }]} multiline numberOfLines={4} placeholder="请口头说出你的答案..." placeholderTextColor={COLORS.textSecondary} value={answer} onChangeText={setAnswer} />
+          <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={submitAnswer} disabled={loading}><Text style={styles.btnText}>{loading ? '评分中...' : '提交答案'}</Text></TouchableOpacity>
+        </>}
+        {result && <>
+          <View style={[styles.resultBox, { backgroundColor: COLORS.card }]}>
+            <Text style={[styles.resultScore, { color: result.score >= 60 ? COLORS.success : COLORS.error }]}>得分: {result.score}</Text>
+            <Text style={[styles.resultFeedback, { color: COLORS.text }]}>{result.feedback}</Text>
+          </View>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={nextQ}><Text style={styles.btnText}>{current < questions.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>
+        </>}
+      </View>
+    </SafeAreaView>
+  );
+}
+
 // ==================== 样式 ====================
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -496,4 +577,7 @@ const styles = StyleSheet.create({
   articleCard: { padding: 20, borderRadius: 12, marginTop: 12 },
   articleTitle: { fontSize: 18, fontWeight: '600' },
   articleDesc: { fontSize: 14, marginTop: 8 },
+  resultBox: { padding: 16, borderRadius: 12, marginTop: 16 },
+  resultScore: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
+  resultFeedback: { fontSize: 15, lineHeight: 22 },
 });
