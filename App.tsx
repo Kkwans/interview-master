@@ -248,9 +248,24 @@ function LearnScreen({ onBack, COLORS }) {
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [articles, setArticles] = useState([]);
+  const [loadingArticles, setLoadingArticles] = useState(false);
 
-  // 从API加载分类
-  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
+  // 从API加载三级分类树
+  useEffect(() => { 
+    apiGet('/api/category-tree', true).then(r => { setCats(r || {}); }).catch(() => {}).finally(() => setLoading(false)); 
+  }, []);
+
+  // 加载文章
+  useEffect(() => {
+    if (selectedSub) {
+      setLoadingArticles(true);
+      apiGet(`/api/articles?category=${encodeURIComponent(selectedCat)}&limit=20`, true)
+        .then(r => setArticles(r || []))
+        .catch(() => setArticles([]))
+        .finally(() => setLoadingArticles(false));
+    }
+  }, [selectedSub, selectedCat]);
 
   if (loading) return <LoadingView text="加载分类..." COLORS={COLORS} />;
   if (!selectedCat) return (
@@ -258,24 +273,41 @@ function LearnScreen({ onBack, COLORS }) {
       <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 知识学习</Text>
       <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始学习</Text>
-      <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedCat(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{cats[c]?.length || 0}个</Text></TouchableOpacity>)}</View>
+      <ScrollView style={{ flex: 1, padding: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card, width: '46%', margin: '2%' }]} onPress={() => setSelectedCat(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{Object.keys(cats[c] || {}).length}个子类</Text></TouchableOpacity>)}</View>
+      </ScrollView>
     </SafeAreaView>
   );
   if (!selectedSub) return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
       <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 {selectedCat}</Text>
-      <View style={styles.catGrid}>{(cats[selectedCat] || []).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text></TouchableOpacity>)}</View>
+      <ScrollView style={{ flex: 1, padding: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{(Object.keys(cats[selectedCat] || {})).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card, width: '46%', margin: '2%' }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{cats[selectedCat]?.[s]?.length || 0}知识点</Text></TouchableOpacity>)}</View>
+      </ScrollView>
     </SafeAreaView>
   );
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
       <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📖 {selectedCat} · {selectedSub}</Text>
-      <ScrollView style={{ flex: 1, padding: 16 }}>
-        <TouchableOpacity style={[styles.articleCard, { backgroundColor: COLORS.card }]}><Text style={[styles.articleTitle, { color: COLORS.text }]}>📖 知识文章</Text><Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>系统化学习该知识点</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]}><Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 对应题库</Text><Text style={styles.articleDesc}>学习后刷题巩固</Text></TouchableOpacity>
-      </ScrollView>
+      {loadingArticles ? <LoadingView text="加载文章..." COLORS={COLORS} /> : (
+        <ScrollView style={{ flex: 1, padding: 16 }}>
+          {articles.length === 0 ? (
+            <View style={{ alignItems: 'center', padding: 40 }}>
+              <Text style={{ color: COLORS.textSecondary, fontSize: 16 }}>暂无文章</Text>
+              <Text style={{ color: COLORS.textSecondary, fontSize: 14, marginTop: 8 }}>该分类下暂无知识文章</Text>
+            </View>
+          ) : (
+            articles.map((a, i) => (
+              <TouchableOpacity key={i} style={[styles.articleCard, { backgroundColor: COLORS.card, marginBottom: 12 }]}>
+                <Text style={[styles.articleTitle, { color: COLORS.text }]}>{a.title}</Text>
+                <Text style={[styles.articleDesc, { color: COLORS.textSecondary }]} numberOfLines={2}>{a.content?.substring(0, 100)}...</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -449,7 +481,7 @@ function MockScreen({ onBack, COLORS }) {
   const [loading, setLoading] = useState(false);
   const [cats, setCats] = useState({});
 
-  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(() => {}); }, []);
+  useEffect(() => { apiGet('/api/category-tree', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(() => {}); }, []);
 
   const startMock = async (cat) => {
     setLoading(true);
