@@ -138,7 +138,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: COLORS.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={COLORS.background} />
-      {toastVis && <View style={[styles.toast, { backgroundColor: toastBg }]}><Text style={styles.toastTxt}>{toastMsg}</Text></View>}
+      {toastVis && <View style={[styles.toast, { backgroundColor: 'rgba(255,255,255,0.85)' }]}><Text style={[styles.toastTxt, { color: '#333' }]}>{toastMsg}</Text></View>}
       {renderScreen()}
       {screen !== 'login' && <BottomBar current={screen} onChange={goTo} COLORS={COLORS} />}
     </GestureHandlerRootView>
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10 },
-  toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, paddingVertical: 14, paddingHorizontal: 20, borderRadius: 10, elevation: 10, backgroundColor: 'rgba(0,0,0,0.75)' },
+  toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, paddingVertical: 14, paddingHorizontal: 20, borderRadius: 16, elevation: 10, backgroundColor: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 8 },
   toastTxt: { color: '#fff', fontSize: 15, textAlign: 'center' },
   loginContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loginBox: { width: SCREEN_WIDTH * 0.85, borderRadius: 20, padding: 24, elevation: 5 },
