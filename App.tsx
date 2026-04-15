@@ -216,7 +216,7 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <View style={[styles.header, { backgroundColor: COLORS.primary }]}>
+      <View style={[styles.header, { backgroundColor: COLORS.primary, paddingTop: Platform.OS === 'android' ? 40 : 50 }]}>
         <View><Text style={[styles.headerTitle, { color: '#fff' }]}>欢迎，{user?.username}</Text><Text style={[styles.headerSub, { color: 'rgba(255,255,255,0.8)' }]}>{user?.isGuest ? '游客' : '已登录'}</Text></View>
         <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}><Text style={styles.logoutText}>退出</Text></TouchableOpacity>
       </View>
