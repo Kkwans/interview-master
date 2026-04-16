@@ -8,7 +8,8 @@ apply plugin: "com.facebook.react"
  */
 react {
     // 强制debug也打包JS bundle
-    bundleInDebug = true
+    debuggableVariants = []
+}
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
