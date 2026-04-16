@@ -19,7 +19,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          kotlin-version: '2.1.0'
       - uses: android-actions/setup-android@v2
       - run: |
           cd android
