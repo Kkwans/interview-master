@@ -32,9 +32,20 @@ const getColors = (isDark) => ({
   border: isDark ? '#333333' : '#E0E0E0',
 });
 
+// AsyncStorage工具
 const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites' };
-const saveData = async (k, d) => { try { await AsyncStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
-const getData = async (k) => { try { const d = await AsyncStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
+const saveData = async (k, d) => { 
+  try { await AsyncStorage.setItem(k, JSON.stringify(d)); } catch (e) { console.log('saveData error:', e); } 
+};
+const getData = async (k) => { 
+  try { 
+    const d = await AsyncStorage.getItem(k); 
+    return d ? JSON.parse(d) : null; 
+  } catch (e) { 
+    console.log('getData error:', e); 
+    return null; 
+  } 
+};
 
 // API请求工具
 // 网络状态追踪
@@ -203,17 +214,26 @@ export default function App() {
     return { backgroundColor: bg };
   };
 
-  // 渲染各页面
+  // 渲染各页面 - 添加错误处理
   const renderScreen = () => {
-    switch (screen) {
-      case 'login': return <LoginScreen onLogin={handleLogin} COLORS={COLORS} />;
-      case 'home': return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
-      case 'learn': return <LearnScreen onBack={onBack} COLORS={COLORS} />;
-      case 'practice': return <PracticeScreen onBack={onBack} COLORS={COLORS} />;
-      case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
-      case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
-      case 'mock': return <MockScreen onBack={onBack} COLORS={COLORS} />;
-      default: return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
+    try {
+      switch (screen) {
+        case 'login': return <LoginScreen onLogin={handleLogin} COLORS={COLORS} />;
+        case 'home': return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
+        case 'learn': return <LearnScreen onBack={onBack} COLORS={COLORS} />;
+        case 'practice': return <PracticeScreen onBack={onBack} COLORS={COLORS} />;
+        case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
+        case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
+        case 'mock': return <MockScreen onBack={onBack} COLORS={COLORS} />;
+        default: return <LoginScreen onLogin={handleLogin} COLORS={COLORS} />;
+      }
+    } catch (e) {
+      console.log('renderScreen error:', e);
+      return (
+        <View style={[styles.loading, { backgroundColor: COLORS.background }]}>
+          <Text style={{ color: COLORS.error }}>渲染错误: {e.message}</Text>
+        </View>
+      );
     }
   };
 
