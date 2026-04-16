@@ -8,8 +8,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // API地址 - 支持双栈
 const API_BASE_V4 = 'http://100.106.29.60:3000';
 const API_BASE_V6 = 'http://[fd7a:115c:a1e0::8a01:1dcc]:3000';
-const TIMEOUT = 5000;  // 默认5秒超时
-const TIMEOUT_SLOW = 10000;  // 慢速网络10秒
+const TIMEOUT = 8000;  // 增加到8秒，给内网穿透更多时间
+const TIMEOUT_SLOW = 15000;  // 慢速网络15秒
 
 // 深色模式检测
 const useSystemColorScheme = () => {
@@ -37,35 +37,72 @@ const saveData = async (k, d) => { try { await AsyncStorage.setItem(k, JSON.stri
 const getData = async (k) => { try { const d = await AsyncStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
 
 // API请求工具
+// 网络状态追踪
+let networkState = { lastError: null, isSlow: false };
+
 const apiGet = async (url, useSlow = false) => {
   const timeout = useSlow ? TIMEOUT_SLOW : TIMEOUT;
+  const startTime = Date.now();
+  
   try { 
     const user = await getData(STORAGE_KEYS.USER);
     const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {};
-    return await axios.get(API_BASE_V4 + url, { timeout, timeoutErrorMessage: 'timeout', headers }).then(r => r.data); 
+    return await axios.get(API_BASE_V4 + url, { timeout, headers }).then(r => r.data); 
   }
   catch (e) {
-    if (e.message === 'timeout') { try { const user = await getData(STORAGE_KEYS.USER); const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {}; return await axios.get(API_BASE_V6 + url, { timeout, headers }).then(r => r.data); } catch (e2) { throw e2; } }
+    const elapsed = Date.now() - startTime;
+    // 如果耗时超过5秒，说明可能走了内网穿透
+    networkState.isSlow = elapsed > 5000;
+    
+    if (e.code === 'ECONNABORTED' || e.message?.includes('timeout') || e.code === 'ECONNREFUSED') { 
+      try { 
+        const user = await getData(STORAGE_KEYS.USER);
+        const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {}; 
+        return await axios.get(API_BASE_V6 + url, { timeout, headers }).then(r => r.data); 
+      } catch (e2) { 
+        networkState.lastError = 'fail';
+        throw e2; 
+      }
+    }
+    networkState.lastError = 'fail';
     throw e;
   }
 };
 const apiPost = async (url, data, useSlow = false) => {
   const timeout = useSlow ? TIMEOUT_SLOW : TIMEOUT;
+  const startTime = Date.now();
+  
   try { 
     const user = await getData(STORAGE_KEYS.USER);
     const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {};
-    return await axios.post(API_BASE_V4 + url, data, { timeout, timeoutErrorMessage: 'timeout', headers }).then(r => r.data); 
+    return await axios.post(API_BASE_V4 + url, data, { timeout, headers }).then(r => r.data); 
   }
   catch (e) {
-    if (e.message === 'timeout') { try { const user = await getData(STORAGE_KEYS.USER); const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {}; return await axios.post(API_BASE_V6 + url, data, { timeout, headers }).then(r => r.data); } catch (e2) { throw e2; } }
+    const elapsed = Date.now() - startTime;
+    networkState.isSlow = elapsed > 5000;
+    
+    if (e.code === 'ECONNABORTED' || e.message?.includes('timeout') || e.code === 'ECONNREFUSED') { 
+      try { 
+        const user = await getData(STORAGE_KEYS.USER);
+        const headers = user?.token ? { Authorization: `Bearer ${user.token}` } : {}; 
+        return await axios.post(API_BASE_V6 + url, data, { timeout, headers }).then(r => r.data); 
+      } catch (e2) { 
+        networkState.lastError = 'fail';
+        throw e2; 
+      }
+    }
+    networkState.lastError = 'fail';
     throw e;
   }
 };
 
-// Toast工具（使用默认值）
+// Toast工具 - 修复引用问题
 let toastRef = null;
+let toastTimeout = null;
 const showToast = (msg, type = 'info') => {
-  if (toastRef) toastRef(msg, type);
+  if (toastRef && toastRef.show) {
+    toastRef.show(msg, type);
+  }
 };
 
 export default function App() {
@@ -81,15 +118,19 @@ export default function App() {
   
   const COLORS = getColors(isDark);
 
-  // Toast函数 - 引用App组件内的setter
+  // Toast函数 - 修复：确保正确设置显示
   const displayToast = useCallback((msg, type) => {
     const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
     setToastMsg(msg); setToastBg(bg); setToastVis(true);
-    setTimeout(() => setToastVis(false), 2000);
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => setToastVis(false), 1800);
   }, [COLORS]);
 
-  // 注册toast引用
-  toastRef = { show: displayToast };
+  // 注册toast引用 - 修复：确保正确传递函数
+  useEffect(() => {
+    toastRef = { show: displayToast };
+    return () => { toastRef = null; };
+  }, [displayToast]);
 
   // 切换深色模式
   const toggleDarkMode = useCallback(() => setIsDark(d => !d), []);
@@ -121,6 +162,12 @@ export default function App() {
 
   if (loading) return <View style={[styles.loading, { backgroundColor: COLORS.background }]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={[styles.loadingText, { color: COLORS.textSecondary }]}>加载中...</Text></View>;
 
+  // Toast样式 - 底部显示，毛玻璃效果
+  const getToastStyle = () => {
+    const bg = toastBg === '#F44336' ? 'rgba(244, 67, 54, 0.92)' : toastBg === '#4CAF50' ? 'rgba(76, 175, 80, 0.92)' : 'rgba(33, 150, 243, 0.92)';
+    return { backgroundColor: bg };
+  };
+
   // 渲染各页面
   const renderScreen = () => {
     switch (screen) {
@@ -138,7 +185,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={[styles.container, { backgroundColor: COLORS.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={COLORS.background} />
-      {toastVis && <View style={[styles.toast, { backgroundColor: 'rgba(255,255,255,0.85)' }]}><Text style={[styles.toastTxt, { color: '#333' }]}>{toastMsg}</Text></View>}
+      {toastVis && (
+        <View style={styles.toastContainer} pointerEvents="none">
+          <View style={[styles.toastBox, getToastStyle()]}>
+            <Text style={styles.toastText}>{toastMsg}</Text>
+          </View>
+        </View>
+      )}
       {renderScreen()}
       {screen !== 'login' && <BottomBar current={screen} onChange={goTo} COLORS={COLORS} />}
     </GestureHandlerRootView>
@@ -160,13 +213,13 @@ function LoginScreen({ onLogin, COLORS }) {
   const [isReg, setIsReg] = useState(false);
   const [user, setUser] = useState('');
   const [pwd, setPwd] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [btnLoading, setBtnLoading] = useState(false);
 
   const handleGuest = async () => { const gu = { id: 'guest', username: '游客', isGuest: true }; await saveData(STORAGE_KEYS.USER, gu); onLogin(gu); };
   const handleSubmit = async () => {
     if (!user.trim() || !pwd.trim()) { showToast('请输入用户名和密码', 'error'); return; }
     if (pwd.length < 6) { showToast('密码至少6位', 'error'); return; }
-    setLoading(true);
+    setBtnLoading(true);
     try {
       const url = isReg ? '/api/register' : '/api/login';
       const res = await apiPost(url, { username: user, password: pwd }, true);
@@ -179,11 +232,18 @@ function LoginScreen({ onLogin, COLORS }) {
     } catch (e) { 
       const errMsg = e.response?.data?.error;
       if (errMsg) { showToast(errMsg, 'error'); }
-      else if (e.code === 'ECONNABORTED' || e.message?.includes('timeout')) { showToast('连接超时，请检查网络', 'error'); }
+      else if (e.code === 'ECONNABORTED' || e.message?.includes('timeout')) { 
+        // 区分超时类型
+        if (networkState.isSlow) {
+          showToast('连接较慢，请耐心等待...', 'error');
+        } else {
+          showToast('连接超时，请检查网络', 'error');
+        }
+      }
       else if (e.code === 'ENOTFOUND' || e.code === 'ECONNREFUSED') { showToast('无法连接服务器', 'error'); }
       else { showToast('网络错误: ' + (e.message || '未知错误'), 'error'); }
     }
-    setLoading(false);
+    setBtnLoading(false);
   };
 
   return (
@@ -192,16 +252,17 @@ function LoginScreen({ onLogin, COLORS }) {
         <Text style={[styles.title, { color: COLORS.primary }]}>🎯 面试大师 🎯</Text>
         <Text style={[styles.subtitle, { color: COLORS.textSecondary }]}>{isReg ? '创建账号' : '登录学习'}</Text>
         <View style={[styles.tabRow, { backgroundColor: COLORS.background }]}>
-          <TouchableOpacity style={[styles.tab, !isReg && styles.tabActive, { backgroundColor: !isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(false)}><Text style={[styles.tabText, !isReg && styles.tabTextActive, { color: !isReg ? '#fff' : COLORS.textSecondary }]}>登录</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, isReg && styles.tabActive, { backgroundColor: isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(true)}><Text style={[styles.tabText, isReg && styles.tabTextActive, { color: isReg ? '#fff' : COLORS.textSecondary }]}>注册</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tab, !isReg && styles.tabActive, { backgroundColor: !isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(false)} activeOpacity={0.8}><Text style={[styles.tabText, !isReg && styles.tabTextActive, { color: !isReg ? '#fff' : COLORS.textSecondary }]}>登录</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tab, isReg && styles.tabActive, { backgroundColor: isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(true)} activeOpacity={0.8}><Text style={[styles.tabText, isReg && styles.tabTextActive, { color: isReg ? '#fff' : COLORS.textSecondary }]}>注册</Text></TouchableOpacity>
         </View>
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="用户名" value={user} onChangeText={setUser} autoCapitalize="none" placeholderTextColor={COLORS.textSecondary} />
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="密码" value={pwd} onChangeText={setPwd} secureTextEntry placeholderTextColor={COLORS.textSecondary} />
-        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
+        {/* 修复：按钮高度固定，不抖动，添加loading状态 */}
+        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary, opacity: btnLoading ? 0.7 : 1 }]} onPress={handleSubmit} disabled={btnLoading} activeOpacity={0.9}>
+          {btnLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)}><Text style={[styles.linkText, { color: COLORS.primary }]}>{isReg ? '登录' : '注册'}</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.guestBtn} onPress={handleGuest}><Text style={[styles.guestText, { color: COLORS.textSecondary }]}>游客模式</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)} activeOpacity={0.7}><Text style={[styles.linkText, { color: COLORS.primary }]}>{isReg ? '已有账号？登录' : '没有账号？注册'}</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.guestBtn} onPress={handleGuest} activeOpacity={0.7}><Text style={[styles.guestText, { color: COLORS.textSecondary }]}>游客模式</Text></TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -214,14 +275,17 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
 
   useEffect(() => { apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); }, []);
 
+  // 修复：主界面顶部padding减少
+  const headerPadding = Platform.OS === 'android' ? 30 : 40;
+
   return (
     <ScrollView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <View style={[styles.header, { backgroundColor: COLORS.primary, paddingTop: Platform.OS === 'android' ? 40 : 50 }]}>
+      <View style={[styles.header, { backgroundColor: COLORS.primary, paddingTop: headerPadding }]}>
         <View><Text style={[styles.headerTitle, { color: '#fff' }]}>欢迎，{user?.username}</Text><Text style={[styles.headerSub, { color: 'rgba(255,255,255,0.8)' }]}>{user?.isGuest ? '游客' : '已登录'}</Text></View>
         <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}><Text style={styles.logoutText}>退出</Text></TouchableOpacity>
       </View>
       {/* 深色模式切换 */}
-      <TouchableOpacity style={[styles.darkModeBtn, { backgroundColor: COLORS.card }]} onPress={toggleDarkMode}>
+      <TouchableOpacity style={[styles.darkModeBtn, { backgroundColor: COLORS.card }]} onPress={toggleDarkMode} activeOpacity={0.7}>
         <Text style={styles.darkModeIcon}>{isDark ? '🌙' : '☀️'}</Text>
         <Text style={[styles.darkModeText, { color: COLORS.text }]}>{isDark ? '深色' : '浅色'}模式</Text>
       </TouchableOpacity>
@@ -251,18 +315,27 @@ function LearnScreen({ onBack, COLORS }) {
   const [articles, setArticles] = useState([]);
   const [loadingArticles, setLoadingArticles] = useState(false);
 
+  // 修复：子页面顶部paddingTop减少
+  const backPadding = Platform.OS === 'android' ? 8 : 10;
+
   // 从API加载三级分类树
   useEffect(() => { 
-    apiGet('/api/category-tree', true).then(r => { setCats(r || {}); }).catch(() => {}).finally(() => setLoading(false)); 
+    apiGet('/api/category-tree', true).then(r => { setCats(r || {}); }).catch(() => { showToast('加载分类失败', 'error'); }).finally(() => setLoading(false)); 
   }, []);
 
-  // 加载文章
+  // 加载文章 - 修复：添加错误提示
   useEffect(() => {
     if (selectedSub) {
       setLoadingArticles(true);
-      apiGet(`/api/articles?category=${encodeURIComponent(selectedCat)}&limit=20`, true)
-        .then(r => setArticles(r || []))
-        .catch(() => setArticles([]))
+      apiGet(`/api/articles?category=${encodeURIComponent(selectedCat)}&subcategory=${encodeURIComponent(selectedSub)}&limit=20`, true)
+        .then(r => {
+          setArticles(r || []);
+          if (!r || r.length === 0) showToast('该分类暂无文章', 'error');
+        })
+        .catch(() => {
+          setArticles([]);
+          showToast('加载文章失败', 'error');
+        })
         .finally(() => setLoadingArticles(false));
     }
   }, [selectedSub, selectedCat]);
@@ -270,7 +343,7 @@ function LearnScreen({ onBack, COLORS }) {
   if (loading) return <LoadingView text="加载分类..." COLORS={COLORS} />;
   if (!selectedCat) return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: backPadding }]} onPress={onBack} activeOpacity={0.7}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 知识学习</Text>
       <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始学习</Text>
       <ScrollView style={{ flex: 1, padding: 12 }}>
@@ -280,7 +353,7 @@ function LearnScreen({ onBack, COLORS }) {
   );
   if (!selectedSub) return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 {selectedCat}</Text>
       <ScrollView style={{ flex: 1, padding: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{(Object.keys(cats[selectedCat] || {})).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card, width: '46%', margin: '2%' }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{cats[selectedCat]?.[s]?.length || 0}知识点</Text></TouchableOpacity>)}</View>
@@ -289,7 +362,7 @@ function LearnScreen({ onBack, COLORS }) {
   );
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📖 {selectedCat} · {selectedSub}</Text>
       {loadingArticles ? <LoadingView text="加载文章..." COLORS={COLORS} /> : (
         <ScrollView style={{ flex: 1, padding: 16 }}>
@@ -383,7 +456,7 @@ function PracticeScreen({ onBack, COLORS }) {
 
   if (mode === 'select') return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>✍️ 智能刷题</Text>
       {loading ? <LoadingView text="加载中..." COLORS={COLORS} /> : (
         <ScrollView style={{ flex: 1, padding: 16 }}>
@@ -458,7 +531,7 @@ function WrongScreen({ onBack, COLORS }) {
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>📝 错题本</Text>
       <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.wrongCard, { backgroundColor: COLORS.card, borderLeftColor: COLORS.error }]}><Text style={[styles.wrongCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.wrongQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.wrongA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
@@ -486,7 +559,7 @@ function FavScreen({ onBack, COLORS }) {
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>❤️ 收藏夹</Text>
       <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.favCard, { backgroundColor: COLORS.card, borderLeftColor: '#9C27B0' }]}><Text style={[styles.favCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.favQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.favA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
@@ -542,7 +615,7 @@ function MockScreen({ onBack, COLORS }) {
   if (!started) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-        <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
         <Text style={[styles.screenTitle, { color: COLORS.text }]}>🎯 模拟面试</Text>
         <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始AI面试</Text>
         <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => startMock(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>开始面试</Text></TouchableOpacity>)}</View>
@@ -554,7 +627,7 @@ function MockScreen({ onBack, COLORS }) {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn, { paddingTop: 10 }]} onPress={() => setStarted(false)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 退出</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === "android" ? 8 : 10 }]} onPress={() => setStarted(false)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 退出</Text></TouchableOpacity>
       <View style={[styles.qCon, { backgroundColor: COLORS.background }]}>
         <Text style={[styles.qCat, { color: COLORS.textSecondary }]}>{category} • {current + 1}/{questions.length}</Text>
         <Text style={[styles.qTxt, { color: COLORS.text }]}>{questions[current]?.question}</Text>
@@ -579,8 +652,10 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10 },
-  toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, paddingVertical: 14, paddingHorizontal: 20, borderRadius: 16, elevation: 10, backgroundColor: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 8 },
-  toastTxt: { color: '#fff', fontSize: 15, textAlign: 'center' },
+  // 修复：Toast底部显示，毛玻璃效果，文字白色
+  toastContainer: { position: 'absolute', bottom: '15%', left: 0, right: 0, alignItems: 'center', zIndex: 9999 },
+  toastBox: { paddingVertical: 14, paddingHorizontal: 24, borderRadius: 28, elevation: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.3, shadowRadius: 12, maxWidth: '85%' },
+  toastText: { color: '#fff', fontSize: 15, fontWeight: '500', textAlign: 'center' },
   loginContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loginBox: { width: SCREEN_WIDTH * 0.85, borderRadius: 20, padding: 24, elevation: 5 },
   title: { fontSize: 32, fontWeight: 'bold', textAlign: 'center' },
