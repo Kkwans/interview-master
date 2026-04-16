@@ -111,14 +111,32 @@ export default function App() {
   const [screen, setScreen] = useState('login');
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
   const [toastBg, setToastBg] = useState('#2196F3');
   const [toastVis, setToastVis] = useState(false);
-  const [prevScreen, setPrevScreen] = useState('home'); // 用于返回
+  const [prevScreen, setPrevScreen] = useState('home');
   
   const COLORS = getColors(isDark);
 
-  // Toast函数 - 修复：确保正确设置显示
+  // 初始化 - 添加错误处理
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await getData(STORAGE_KEYS.USER);
+        if (u) {
+          setUser(u);
+          setScreen('home');
+        }
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  // Toast函数
   const displayToast = useCallback((msg, type) => {
     const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
     setToastMsg(msg); setToastBg(bg); setToastVis(true);
@@ -159,6 +177,23 @@ export default function App() {
   };
   const handleLogin = (u) => { setUser(u); setPrevScreen('login'); setScreen('home'); };
   const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); };
+
+  // 错误处理
+  if (error) {
+    return (
+      <View style={[styles.loading, { backgroundColor: COLORS.background }]}>
+        <Text style={{ color: COLORS.error, fontSize: 16, textAlign: 'center', padding: 20 }}>
+          ⚠️ 出错了: {error}
+        </Text>
+        <TouchableOpacity 
+          style={{ marginTop: 20, padding: 12, backgroundColor: COLORS.primary, borderRadius: 8 }}
+          onPress={() => { setError(null); setLoading(false); }}
+        >
+          <Text style={{ color: '#fff' }}>重试</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (loading) return <View style={[styles.loading, { backgroundColor: COLORS.background }]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={[styles.loadingText, { color: COLORS.textSecondary }]}>加载中...</Text></View>;
 
