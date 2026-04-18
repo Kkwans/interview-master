@@ -213,12 +213,26 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
   const [userStat, setUserStat] = useState({ done: 0, correct: 0, wrong: 0, fav: 0 });
 
   useEffect(() => { 
-    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); 
+    // API失败不影响页面显示
+    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => { setStat({ questions: 0 }); }).finally(() => setLoading(false)); 
     // 加载用户学习统计
     (async () => {
-      const [wrongList, favList, correctList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES), getData(STORAGE_KEYS.CORRECT)]);
-      const done = (wrongList?.length || 0) + (favList?.length || 0) + (correctList?.length || 0);
-      setUserStat({ done, correct: correctList?.length || 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
+      const u = await getData(STORAGE_KEYS.USER);
+      if (u && !u.isGuest && u.token) {
+        // 登录用户从NAS获取
+        try {
+          const [wrong, fav, correct] = await Promise.all([
+            apiGet('/api/wrong-answers', true).catch(() => []),
+            apiGet('/api/favorites', true).catch(() => [])
+          ]);
+          setUserStat({ done: wrong.length + fav.length, correct: 0, wrong: wrong.length, fav: fav.length });
+        } catch (e) {}
+      } else {
+        // 游客/本地
+        const [wrongList, favList, correctList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES), getData(STORAGE_KEYS.CORRECT)]);
+        const done = (wrongList?.length || 0) + (favList?.length || 0) + (correctList?.length || 0);
+        setUserStat({ done, correct: correctList?.length || 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
+      }
     })();
   }, []);
 
@@ -272,7 +286,11 @@ function LearnScreen({ onBack, COLORS }) {
       (catsRes || []).forEach(c => { m[c.name] = c.children || []; });
       setCats(m);
       setArticles(artsRes || []);
-    }).catch(e => {}).finally(() => setLoading(false)); 
+    }).catch(e => { 
+      // API失败使用空数据
+      setCats({});
+      setArticles([]);
+    }).finally(() => setLoading(false)); 
   }, []);
 
   // 文章详情页
