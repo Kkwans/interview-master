@@ -190,8 +190,17 @@ function LoginScreen({ onLogin, COLORS }) {
 function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode }) {
   const [stat, setStat] = useState({ questions: 0 });
   const [loading, setLoading] = useState(true);
+  const [userStat, setUserStat] = useState({ done: 0, correct: 0, wrong: 0, fav: 0 });
 
-  useEffect(() => { apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); }, []);
+  useEffect(() => { 
+    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); 
+    // 加载用户学习统计
+    (async () => {
+      const [wrongList, favList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES)]);
+      const done = (wrongList?.length || 0) + (favList?.length || 0);
+      setUserStat({ done, correct: 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
+    })();
+  }, []);
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: COLORS.background }]}>
@@ -206,6 +215,9 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
       </TouchableOpacity>
       <View style={[styles.statsContainer, { padding: 16, marginTop: -20 }]}>
         <View style={[styles.statCard, { backgroundColor: COLORS.card }]}>{loading ? <ActivityIndicator color={COLORS.primary} /> : <><Text style={[styles.statNum, { color: COLORS.primary }]}>{stat.questions}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>题库</Text></>}</View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: COLORS.success }]}>{userStat.done}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>已刷</Text></View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: COLORS.error }]}>{userStat.wrong}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>错题</Text></View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: '#9C27B0' }]}>{userStat.fav}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>收藏</Text></View>
       </View>
       <Text style={[styles.sectionTitle, { color: COLORS.text }]}>核心功能</Text>
       <MenuCard title="知识学习" desc="系统化学体系" icon="📚" color="#4CAF50" on={() => onNavigate('learn')} COLORS={COLORS} />
@@ -528,8 +540,8 @@ const styles = StyleSheet.create({
   darkModeBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 16, padding: 16, borderRadius: 12 },
   darkModeIcon: { fontSize: 24, marginRight: 12 },
   darkModeText: { fontSize: 16, fontWeight: '600' },
-  statsContainer: { padding: 16, marginTop: -20 },
-  statCard: { borderRadius: 12, padding: 20, alignItems: 'center', elevation: 3 },
+  statsContainer: { padding: 16, marginTop: -20, flexDirection: 'row', justifyContent: 'space-between' },
+  statCard: { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', elevation: 3, marginHorizontal: 4 },
   statNum: { fontSize: 32, fontWeight: 'bold' },
   statLabel: { fontSize: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '600', margin: 16, marginTop: 8 },

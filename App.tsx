@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler, useColorScheme } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler, useColorScheme, Clipboard, Share, Alert } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import axios from 'axios';
 
@@ -32,7 +32,7 @@ const getColors = (isDark) => ({
   border: isDark ? '#333333' : '#E0E0E0',
 });
 
-const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites' };
+const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites', PROGRESS: '@im_progress', CORRECT: '@im_correct' };
 const saveData = async (k, d) => { try { await AsyncStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
 const getData = async (k) => { try { const d = await AsyncStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
 
@@ -190,8 +190,17 @@ function LoginScreen({ onLogin, COLORS }) {
 function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode }) {
   const [stat, setStat] = useState({ questions: 0 });
   const [loading, setLoading] = useState(true);
+  const [userStat, setUserStat] = useState({ done: 0, correct: 0, wrong: 0, fav: 0 });
 
-  useEffect(() => { apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); }, []);
+  useEffect(() => { 
+    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); 
+    // 加载用户学习统计
+    (async () => {
+      const [wrongList, favList, correctList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES), getData(STORAGE_KEYS.CORRECT)]);
+      const done = (wrongList?.length || 0) + (favList?.length || 0) + (correctList?.length || 0);
+      setUserStat({ done, correct: correctList?.length || 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
+    })();
+  }, []);
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: COLORS.background }]}>
@@ -206,6 +215,9 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
       </TouchableOpacity>
       <View style={[styles.statsContainer, { padding: 16, marginTop: -20 }]}>
         <View style={[styles.statCard, { backgroundColor: COLORS.card }]}>{loading ? <ActivityIndicator color={COLORS.primary} /> : <><Text style={[styles.statNum, { color: COLORS.primary }]}>{stat.questions}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>题库</Text></>}</View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: COLORS.success }]}>{userStat.done}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>已刷</Text></View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: COLORS.error }]}>{userStat.wrong}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>错题</Text></View>
+        <View style={[styles.statCard, { backgroundColor: COLORS.card, marginTop: 12 }]}><Text style={[styles.statNum, { color: '#9C27B0' }]}>{userStat.fav}</Text><Text style={[styles.statLabel, { color: COLORS.textSecondary }]}>收藏</Text></View>
       </View>
       <Text style={[styles.sectionTitle, { color: COLORS.text }]}>核心功能</Text>
       <MenuCard title="知识学习" desc="系统化学体系" icon="📚" color="#4CAF50" on={() => onNavigate('learn')} COLORS={COLORS} />
@@ -305,6 +317,11 @@ function PracticeScreen({ onBack, COLORS }) {
         wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_option: ans, answered_at: new Date().toISOString() });
         await saveData(STORAGE_KEYS.WRONG, wrongList); showToast('已记录错题', 'error');
       }
+    } else {
+      // 记录正确答案
+      const correctList = await getData(STORAGE_KEYS.CORRECT) || [];
+      correctList.push({ question_id: q.id, category: q.category, question: q.question, answered_at: new Date().toISOString() });
+      await saveData(STORAGE_KEYS.CORRECT, correctList);
     }
   };
 
@@ -317,6 +334,18 @@ function PracticeScreen({ onBack, COLORS }) {
       const favList = await getData(STORAGE_KEYS.FAVORITES) || [];
       favList.push({ question_id: qs[idx].id, category: qs[idx].category, question: qs[idx].question, answer: qs[idx].answer, created_at: new Date().toISOString() });
       await saveData(STORAGE_KEYS.FAVORITES, favList); showToast('已收藏', 'success');
+    }
+  };
+
+  // 分享题目
+  const shareQuestion = async () => {
+    const q = qs[idx];
+    const text = `【面试大师】${q.category}题：${q.question}\n\n答案：${q.answer}\n\n来源：面试大师APP`;
+    try {
+      await Share.share({ message: text, title: '面试大师题目分享' });
+    } catch (e) {
+      Clipboard.setString(text);
+      showToast('已复制到剪贴板', 'success');
     }
   };
 
@@ -355,7 +384,10 @@ function PracticeScreen({ onBack, COLORS }) {
           return <TouchableOpacity key={i} style={[styles.opt, { backgroundColor: bg, borderColor: bc }]} onPress={() => handleAnswer(o)} disabled={showResult}><Text style={[styles.optTxt, { color: COLORS.text }]}>{o}</Text>{showResult && o === q.answer && <Text style={{ color: COLORS.success }}>✓</Text>}</TouchableOpacity>;
         })}
       </ScrollView>
-      {showResult && <TouchableOpacity style={[styles.nextBtn, { backgroundColor: COLORS.primary }]} onPress={next}><Text style={styles.nextBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>}
+      {showResult && <View style={styles.actionRow}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.card, borderColor: COLORS.border }]} onPress={toggleFavorite}><Text style={[styles.actionBtnTxt, { color: COLORS.text }]}>❤️ 收藏</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.primary }]} onPress={next}><Text style={styles.actionBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>
+      </View>}
     </SafeAreaView>
   );
 }
@@ -528,8 +560,8 @@ const styles = StyleSheet.create({
   darkModeBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 16, padding: 16, borderRadius: 12 },
   darkModeIcon: { fontSize: 24, marginRight: 12 },
   darkModeText: { fontSize: 16, fontWeight: '600' },
-  statsContainer: { padding: 16, marginTop: -20 },
-  statCard: { borderRadius: 12, padding: 20, alignItems: 'center', elevation: 3 },
+  statsContainer: { padding: 16, marginTop: -20, flexDirection: 'row', justifyContent: 'space-between' },
+  statCard: { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', elevation: 3, marginHorizontal: 4 },
   statNum: { fontSize: 32, fontWeight: 'bold' },
   statLabel: { fontSize: 14 },
   sectionTitle: { fontSize: 18, fontWeight: '600', margin: 16, marginTop: 8 },
