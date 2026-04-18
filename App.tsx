@@ -92,7 +92,18 @@ export default function App() {
     return () => backHandler.remove();
   }, [screen, prevScreen]);
 
-  useEffect(() => { (async () => { const u = await getData(STORAGE_KEYS.USER); if (u) { setUser(u); setScreen('home'); } setLoading(false); })(); }, []);
+  // 初始化 - 使用超时保护
+  useEffect(() => { 
+    (async () => { 
+      try {
+        const u = await getData(STORAGE_KEYS.USER); 
+        if (u) { setUser(u); setScreen('home'); }
+      } catch (e) {
+        console.log('初始化失败', e);
+      }
+      setLoading(false); 
+    })(); 
+  }, []);
 
   const goTo = (newScreen) => { 
     setPrevScreen(screen);
@@ -146,12 +157,14 @@ function LoginScreen({ onLogin, COLORS }) {
   const [user, setUser] = useState('');
   const [pwd, setPwd] = useState('');
   const [loading, setLoading] = useState(false);
+  const [btnLoading, setBtnLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleGuest = async () => { const gu = { id: 'guest', username: '游客', isGuest: true }; await saveData(STORAGE_KEYS.USER, gu); onLogin(gu); };
   const handleSubmit = async () => {
     if (!user.trim() || !pwd.trim()) { showToast('请输入用户名和密码', 'error'); return; }
     if (pwd.length < 6) { showToast('密码至少6位', 'error'); return; }
-    setLoading(true);
+    setBtnLoading(true);
     try {
       const url = isReg ? '/api/register' : '/api/login';
       const res = await apiPost(url, { username: user, password: pwd }, true);
@@ -169,7 +182,7 @@ function LoginScreen({ onLogin, COLORS }) {
         showToast(e.response?.data?.error || '登录失败', 'error');
       }
     }
-    setLoading(false);
+    setBtnLoading(false);
   };
 
   return (
@@ -183,8 +196,8 @@ function LoginScreen({ onLogin, COLORS }) {
         </View>
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="用户名" value={user} onChangeText={setUser} autoCapitalize="none" placeholderTextColor={COLORS.textSecondary} />
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="密码" value={pwd} onChangeText={setPwd} secureTextEntry placeholderTextColor={COLORS.textSecondary} />
-        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
+        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={btnLoading}>
+          {btnLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
         </TouchableOpacity>
         <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)}><Text style={[styles.linkText, { color: COLORS.primary }]}>{isReg ? '登录' : '注册'}</Text></TouchableOpacity>
         <TouchableOpacity style={styles.guestBtn} onPress={handleGuest}><Text style={[styles.guestText, { color: COLORS.textSecondary }]}>游客模式</Text></TouchableOpacity>
