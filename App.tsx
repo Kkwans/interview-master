@@ -436,22 +436,23 @@ function WrongScreen({ onBack, COLORS }) {
   useEffect(() => { (async () => { 
     const u = await getData(STORAGE_KEYS.USER);
     setUser(u);
-    // 登录用户从NAS获取，游客从本地获取
+    // 登录用户从NAS获取
     if (u && !u.isGuest && u.token) {
-      try { const r = await apiGet('/api/wrong-answers', true); setList(r || []); } catch (e) { setList([]); }
+      try { const r = await apiGet('/api/wrong-answers', true); setList(r || []); } catch (e) { showToast('获取错题失败', 'error'); setList([]); }
     } else {
-      setList(await getData(STORAGE_KEYS.WRONG) || []);
+      // 游客提示登录
+      setList([]); 
     }
     setLoading(false);
   })(); }, []);
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📝 错题本</Text>
-      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
+      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>错题本</Text>
+      {(!user || user.isGuest) && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>请登录查看错题</Text>}
+      {list.length === 0 && user && !user.isGuest && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.wrongCard, { backgroundColor: COLORS.card, borderLeftColor: COLORS.error }]}><Text style={[styles.wrongCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.wrongQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.wrongA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
-      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -466,20 +467,20 @@ function FavScreen({ onBack, COLORS }) {
     const u = await getData(STORAGE_KEYS.USER);
     setUser(u);
     if (u && !u.isGuest && u.token) {
-      try { const r = await apiGet('/api/favorites', true); setList(r || []); } catch (e) { setList([]); }
+      try { const r = await apiGet('/api/favorites', true); setList(r || []); } catch (e) { showToast('获取收藏失败', 'error'); setList([]); }
     } else {
-      setList(await getData(STORAGE_KEYS.FAVORITES) || []);
+      setList([]); 
     }
     setLoading(false);
   })(); }, []);
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>❤️ 收藏夹</Text>
-      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
+      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>收藏夹</Text>
+      {(!user || user.isGuest) && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>请登录查看收藏</Text>}
+      {list.length === 0 && user && !user.isGuest && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.favCard, { backgroundColor: COLORS.card, borderLeftColor: '#9C27B0' }]}><Text style={[styles.favCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.favQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.favA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
-      </ScrollView>
     </SafeAreaView>
   );
 }
