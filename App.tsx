@@ -158,7 +158,6 @@ function LoginScreen({ onLogin, COLORS }) {
   const [pwd, setPwd] = useState('');
   const [loading, setLoading] = useState(false);
   const [btnLoading, setBtnLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const handleGuest = async () => { const gu = { id: 'guest', username: '游客', isGuest: true }; await saveData(STORAGE_KEYS.USER, gu); onLogin(gu); };
   const handleSubmit = async () => {
