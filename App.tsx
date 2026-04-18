@@ -127,6 +127,7 @@ export default function App() {
       case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
       case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
       case 'mock': return <MockScreen onBack={onBack} COLORS={COLORS} />;
+      case 'settings': return <SettingsScreen onBack={onBack} user={user} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
       default: return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
     }
   };
@@ -142,7 +143,7 @@ export default function App() {
 }
 
 function BottomBar({ current, onChange, COLORS }) {
-  const tabs = [{ k: 'home', i: '🏠', l: '首页' }, { k: 'learn', i: '📚', l: '学习' }, { k: 'practice', i: '✍️', l: '刷题' }, { k: 'wrong', i: '📝', l: '错题' }, { k: 'fav', i: '❤️', l: '收藏' }];
+  const tabs = [{ k: 'home', i: '🏠', l: '首页' }, { k: 'learn', i: '📚', l: '学习' }, { k: 'practice', i: '✍️', l: '刷题' }, { k: 'wrong', i: '📝', l: '错题' }, { k: 'fav', i: '❤️', l: '收藏' }, { k: 'settings', i: '⚙️', l: '设置' }];
   return <View style={[tabStyles.bar, { backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: Platform.OS === 'ios' ? 20 : 8 }]}>{tabs.map(t => <TouchableOpacity key={t.k} style={tabStyles.item} onPress={() => onChange(t.k)}><Text style={[tabStyles.icon, { opacity: current === t.k ? 1 : 0.5 }]}>{t.i}</Text><Text style={[tabStyles.label, { color: current === t.k ? COLORS.primary : COLORS.textSecondary, fontSize: 10 }]}>{t.l}</Text></TouchableOpacity>)}</View>;
 }
 const tabStyles = StyleSheet.create({ bar: { flexDirection: 'row', paddingTop: 8 }, item: { flex: 1, alignItems: 'center' }, icon: { fontSize: 20 }, label: { fontWeight: '600' } });
@@ -257,6 +258,7 @@ function LearnScreen({ onBack, COLORS }) {
   const [cats, setCats] = useState({});
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
+  const [selectedArticle, setSelectedArticle] = useState(null);
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -273,6 +275,22 @@ function LearnScreen({ onBack, COLORS }) {
     }).catch(e => {}).finally(() => setLoading(false)); 
   }, []);
 
+  // 文章详情页
+  if (selectedArticle) {
+    return (
+      <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedArticle(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+        <ScrollView style={{ flex: 1, padding: 16 }}>
+          <Text style={[styles.screenTitle, { color: COLORS.text }]}>{selectedArticle.title}</Text>
+          <Text style={[styles.desc, { color: COLORS.textSecondary }]}>来源: {selectedArticle.source || '未知'}</Text>
+          <View style={[styles.articleContent, { backgroundColor: COLORS.card, padding: 16, borderRadius: 12 }]}>
+            <Text style={[styles.articleBody, { color: COLORS.text }]}>{selectedArticle.content || selectedArticle.body || '暂无内容'}</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   const filteredArticles = articles.filter(a => a.category === selectedCat || selectedSub && a.sub_category === selectedSub);
 
   // 选择子分类后显示文章列表
@@ -280,19 +298,19 @@ function LearnScreen({ onBack, COLORS }) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-        <Text style={[styles.screenTitle, { color: COLORS.text }]}>📖 {selectedCat} · {selectedSub}</Text>
+        <Text style={[styles.screenTitle, { color: COLORS.text }]}>{selectedCat} · {selectedSub}</Text>
         <Text style={[styles.desc, { color: COLORS.textSecondary }]}>{filteredArticles.length}篇文章</Text>
         <ScrollView style={{ flex: 1, padding: 16 }}>
           {filteredArticles.length === 0 ? (
             <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无文章</Text>
           ) : filteredArticles.map((a, i) => (
-            <TouchableOpacity key={i} style={[styles.articleCard, { backgroundColor: COLORS.card }]}>
+            <TouchableOpacity key={i} style={[styles.articleCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedArticle(a)}>
               <Text style={[styles.articleTitle, { color: COLORS.text }]}>{a.title}</Text>
-              <Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>{a.source || '未知来源'}</Text>
+              <Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>{a.source || '未知来源'} → 点击阅读</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]}>
-            <Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 对应题库</Text>
+          <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]} onPress={() => onBack()}>
+            <Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 开始刷题</Text>
             <Text style={styles.articleDesc}>学习后刷题巩固</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -497,6 +515,52 @@ function FavScreen({ onBack, COLORS }) {
   );
 }
 
+// ==================== 设置 ====================
+function SettingsScreen({ onBack, user, onLogout, COLORS, isDark, toggleDarkMode }) {
+  const [u, setU] = useState(null);
+  
+  useEffect(() => { (async () => { const data = await getData(STORAGE_KEYS.USER); setU(data); })(); }, []);
+
+  const handleClearCache = async () => {
+    try {
+      await AsyncStorage.clear();
+      showToast('缓存已清理', 'success');
+    } catch (e) { showToast('清理失败', 'error'); }
+  };
+
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>设置</Text>
+      
+      <View style={{ padding: 16 }}>
+        <View style={[styles.settingItem, { backgroundColor: COLORS.card }]}>
+          <Text style={[styles.settingLabel, { color: COLORS.text }]}>当前用户</Text>
+          <Text style={[styles.settingValue, { color: COLORS.textSecondary }]}>{u?.username || '未登录'}</Text>
+        </View>
+        
+        <View style={[styles.settingItem, { backgroundColor: COLORS.card }]}>
+          <Text style={[styles.settingLabel, { color: COLORS.text }]}>主题模式</Text>
+          <TouchableOpacity onPress={toggleDarkMode}>
+            <Text style={[styles.settingValue, { color: COLORS.primary }]}>{isDark ? '深色 🌙' : '浅色 ☀️'}</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <TouchableOpacity style={[styles.settingItem, { backgroundColor: COLORS.card }]} onPress={handleClearCache}>
+          <Text style={[styles.settingLabel, { color: COLORS.text }]}>清理缓存</Text>
+          <Text style={[styles.settingValue, { color: COLORS.error }]}>点击清理</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={[styles.settingItem, { backgroundColor: COLORS.error }]} onPress={async () => { await onLogout(); showToast('已退出登录', 'success'); }}>
+          <Text style={[styles.settingLabel, { color: '#fff' }]}>退出登录</Text>
+        </TouchableOpacity>
+      </View>
+      
+      <Text style={[styles.desc, { color: COLORS.textSecondary, textAlign: 'center', marginTop: 40 }]}>面试大师 v23{'\n'}让学习更高效</Text>
+    </SafeAreaView>
+  );
+}
+
 // ==================== 模拟面试 ====================
 function MockScreen({ onBack, COLORS }) {
   const [category, setCategory] = useState(null);
@@ -657,6 +721,11 @@ const styles = StyleSheet.create({
   articleCard: { padding: 20, borderRadius: 12, marginTop: 12 },
   articleTitle: { fontSize: 18, fontWeight: '600' },
   articleDesc: { fontSize: 14, marginTop: 8 },
+  articleContent: { padding: 16, borderRadius: 12, marginTop: 12 },
+  articleBody: { fontSize: 16, lineHeight: 24 },
+  settingItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 12, marginTop: 12 },
+  settingLabel: { fontSize: 16, fontWeight: '500' },
+  settingValue: { fontSize: 14 },
   resultBox: { padding: 16, borderRadius: 12, marginTop: 16 },
   resultScore: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
   resultFeedback: { fontSize: 15, lineHeight: 22 },
