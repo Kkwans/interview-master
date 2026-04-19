@@ -1,4 +1,7 @@
 {
   "name": "InterviewMaster",
-  "displayName": "InterviewMaster"
+  "displayName": "InterviewMaster",
+  "android": {
+    "package": "com.anonymous.interviewmaster"
+  }
 }

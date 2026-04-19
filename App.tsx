@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler, useColorScheme, Clipboard, Share, Alert } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, SafeAreaView, AsyncStorage, Dimensions, Platform, BackHandler, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import axios from 'axios';
 
@@ -8,8 +8,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // API地址 - 支持双栈
 const API_BASE_V4 = 'http://100.106.29.60:3000';
 const API_BASE_V6 = 'http://[fd7a:115c:a1e0::8a01:1dcc]:3000';
-const TIMEOUT = 5000;
-const TIMEOUT_SLOW = 15000;
+const TIMEOUT = 3000;
+const TIMEOUT_SLOW = 8000;
 
 // 深色模式检测
 const useSystemColorScheme = () => {
@@ -32,7 +32,7 @@ const getColors = (isDark) => ({
   border: isDark ? '#333333' : '#E0E0E0',
 });
 
-const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites', PROGRESS: '@im_progress', CORRECT: '@im_correct' };
+const STORAGE_KEYS = { USER: '@im_user', WRONG: '@im_wrong', FAVORITES: '@im_favorites' };
 const saveData = async (k, d) => { try { await AsyncStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
 const getData = async (k) => { try { const d = await AsyncStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
 
@@ -54,11 +54,13 @@ const apiPost = async (url, data, useSlow = false) => {
   }
 };
 
-// Toast
-let toastRef = { show: () => {} };
+// Toast - 不依赖COLORS
+let toastRef = null;
 const showToast = (msg, type = 'info') => {
-  const bg = type === 'error' ? COLORS.error : type === 'success' ? COLORS.success : COLORS.primary;
-  toastRef.show(msg, bg);
+  if (toastRef?.current) {
+    const bg = type === 'error' ? '#F44336' : type === 'success' ? '#4CAF50' : '#2196F3';
+    toastRef.current(msg, bg);
+  }
 };
 
 export default function App() {
@@ -70,11 +72,15 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState('');
   const [toastBg, setToastBg] = useState('#2196F3');
   const [toastVis, setToastVis] = useState(false);
-  const [prevScreen, setPrevScreen] = useState('home'); // 用于返回
+  const [prevScreen, setPrevScreen] = useState('login');
   
   const COLORS = getColors(isDark);
 
-  toastRef = { show: (msg, bg) => { setToastMsg(msg); setToastBg(bg); setToastVis(true); setTimeout(() => setToastVis(false), 2500); } };
+  // toast回调 - 在组件内初始化
+  toastRef = React.useRef(null);
+  const showToastFn = (msg, bg) => { setToastMsg(msg); setToastBg(bg || '#2196F3'); setToastVis(true); setTimeout(() => setToastVis(false), 2500); };
+  // 将函数传递给需要的地方
+  React.useEffect(() => { toastRef.current = showToastFn; }, []);
 
   // 切换深色模式
   const toggleDarkMode = useCallback(() => setIsDark(d => !d), []);
@@ -92,17 +98,32 @@ export default function App() {
     return () => backHandler.remove();
   }, [screen, prevScreen]);
 
-  // 初始化 - 使用超时保护
+  // 初始化 - 防止白屏的强化版本
   useEffect(() => { 
+    let mounted = true;
     (async () => { 
+      // 添加超时保护，5秒后强制结束loading
+      const initTimeout = setTimeout(() => { 
+        if (mounted) { setLoading(false); } 
+      }, 5000);
+      
       try {
+        // 直接尝试获取用户数据，使用简化逻辑
         const u = await getData(STORAGE_KEYS.USER); 
-        if (u) { setUser(u); setScreen('home'); }
+        if (mounted && u) { 
+          setUser(u); 
+          setScreen('home'); 
+        }
       } catch (e) {
-        console.log('初始化失败', e);
+        console.log('初始化错误:', e);
+      } finally {
+        if (mounted) {
+          clearTimeout(initTimeout);
+          setLoading(false);
+        }
       }
-      setLoading(false); 
     })(); 
+    return () => { mounted = false; };
   }, []);
 
   const goTo = (newScreen) => { 
@@ -115,7 +136,15 @@ export default function App() {
   const handleLogin = (u) => { setUser(u); setPrevScreen('login'); setScreen('home'); };
   const handleLogout = async () => { await saveData(STORAGE_KEYS.USER, null); setUser(null); setScreen('login'); };
 
-  if (loading) return <View style={[styles.loading, { backgroundColor: COLORS.background }]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={[styles.loadingText, { color: COLORS.textSecondary }]}>加载中...</Text></View>;
+  if (loading) {
+    // 超时保护fallback，防止无限白屏
+    return (
+      <View style={[styles.loading, { backgroundColor: '#F5F5F5' }]}>
+        <ActivityIndicator size="large" color="#2196F3" />
+        <Text style={[styles.loadingText, { color: '#757575' }]}>加载中...</Text>
+      </View>
+    );
+  }
 
   // 渲染各页面
   const renderScreen = () => {
@@ -127,7 +156,7 @@ export default function App() {
       case 'wrong': return <WrongScreen onBack={onBack} COLORS={COLORS} />;
       case 'fav': return <FavScreen onBack={onBack} COLORS={COLORS} />;
       case 'mock': return <MockScreen onBack={onBack} COLORS={COLORS} />;
-      case 'settings': return <SettingsScreen onBack={onBack} user={user} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
+      case 'settings': return <SettingsScreen onBack={onBack} COLORS={COLORS} />;
       default: return <HomeScreen user={user} onNavigate={goTo} onLogout={handleLogout} COLORS={COLORS} isDark={isDark} toggleDarkMode={toggleDarkMode} />;
     }
   };
@@ -143,7 +172,7 @@ export default function App() {
 }
 
 function BottomBar({ current, onChange, COLORS }) {
-  const tabs = [{ k: 'home', i: '🏠', l: '首页' }, { k: 'learn', i: '📚', l: '学习' }, { k: 'practice', i: '✍️', l: '刷题' }, { k: 'wrong', i: '📝', l: '错题' }, { k: 'fav', i: '❤️', l: '收藏' }, { k: 'settings', i: '⚙️', l: '设置' }];
+  const tabs = [{ k: 'home', i: '🏠', l: '首页' }, { k: 'learn', i: '📚', l: '学习' }, { k: 'practice', i: '✍️', l: '刷题' }, { k: 'wrong', i: '📝', l: '错题' }, { k: 'fav', i: '❤️', l: '收藏' }];
   return <View style={[tabStyles.bar, { backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: Platform.OS === 'ios' ? 20 : 8 }]}>{tabs.map(t => <TouchableOpacity key={t.k} style={tabStyles.item} onPress={() => onChange(t.k)}><Text style={[tabStyles.icon, { opacity: current === t.k ? 1 : 0.5 }]}>{t.i}</Text><Text style={[tabStyles.label, { color: current === t.k ? COLORS.primary : COLORS.textSecondary, fontSize: 10 }]}>{t.l}</Text></TouchableOpacity>)}</View>;
 }
 const tabStyles = StyleSheet.create({ bar: { flexDirection: 'row', paddingTop: 8 }, item: { flex: 1, alignItems: 'center' }, icon: { fontSize: 20 }, label: { fontWeight: '600' } });
@@ -158,13 +187,12 @@ function LoginScreen({ onLogin, COLORS }) {
   const [user, setUser] = useState('');
   const [pwd, setPwd] = useState('');
   const [loading, setLoading] = useState(false);
-  const [btnLoading, setBtnLoading] = useState(false);
 
   const handleGuest = async () => { const gu = { id: 'guest', username: '游客', isGuest: true }; await saveData(STORAGE_KEYS.USER, gu); onLogin(gu); };
   const handleSubmit = async () => {
     if (!user.trim() || !pwd.trim()) { showToast('请输入用户名和密码', 'error'); return; }
     if (pwd.length < 6) { showToast('密码至少6位', 'error'); return; }
-    setBtnLoading(true);
+    setLoading(true);
     try {
       const url = isReg ? '/api/register' : '/api/login';
       const res = await apiPost(url, { username: user, password: pwd }, true);
@@ -174,21 +202,14 @@ function LoginScreen({ onLogin, COLORS }) {
         onLogin(ud); 
         showToast(isReg ? '注册成功' : '登录成功', 'success'); 
       }
-    } catch (e) { 
-      const msg = e.message || '';
-      if (msg.includes('timeout') || msg.includes('网络')) {
-        showToast('无法连接服务器，请检查网络或NAS连接', 'error');
-      } else {
-        showToast(e.response?.data?.error || '登录失败', 'error');
-      }
-    }
-    setBtnLoading(false);
+    } catch (e) { showToast(e.response?.data?.error || '网络超时', 'error'); }
+    setLoading(false);
   };
 
   return (
     <SafeAreaView style={[styles.loginContainer, { backgroundColor: COLORS.background }]}>
       <View style={[styles.loginBox, { backgroundColor: COLORS.card }]}>
-        <Text style={[styles.title, { color: COLORS.primary }]}>面试大师</Text>
+        <Text style={[styles.title, { color: COLORS.primary }]}>🎯 面试大师</Text>
         <Text style={[styles.subtitle, { color: COLORS.textSecondary }]}>{isReg ? '创建账号' : '登录学习'}</Text>
         <View style={[styles.tabRow, { backgroundColor: COLORS.background }]}>
           <TouchableOpacity style={[styles.tab, !isReg && styles.tabActive, { backgroundColor: !isReg ? COLORS.primary : 'transparent' }]} onPress={() => setIsReg(false)}><Text style={[styles.tabText, !isReg && styles.tabTextActive, { color: !isReg ? '#fff' : COLORS.textSecondary }]}>登录</Text></TouchableOpacity>
@@ -196,8 +217,8 @@ function LoginScreen({ onLogin, COLORS }) {
         </View>
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="用户名" value={user} onChangeText={setUser} autoCapitalize="none" placeholderTextColor={COLORS.textSecondary} />
         <TextInput style={[styles.input, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="密码" value={pwd} onChangeText={setPwd} secureTextEntry placeholderTextColor={COLORS.textSecondary} />
-        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={btnLoading}>
-          {btnLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
+        <TouchableOpacity style={[styles.btn, { backgroundColor: COLORS.primary }]} onPress={handleSubmit} disabled={loading}>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{isReg ? '注册' : '登录'}</Text>}
         </TouchableOpacity>
         <TouchableOpacity style={styles.linkBtn} onPress={() => setIsReg(!isReg)}><Text style={[styles.linkText, { color: COLORS.primary }]}>{isReg ? '登录' : '注册'}</Text></TouchableOpacity>
         <TouchableOpacity style={styles.guestBtn} onPress={handleGuest}><Text style={[styles.guestText, { color: COLORS.textSecondary }]}>游客模式</Text></TouchableOpacity>
@@ -213,26 +234,12 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
   const [userStat, setUserStat] = useState({ done: 0, correct: 0, wrong: 0, fav: 0 });
 
   useEffect(() => { 
-    // API失败不影响页面显示
-    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => { setStat({ questions: 0 }); }).finally(() => setLoading(false)); 
+    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); 
     // 加载用户学习统计
     (async () => {
-      const u = await getData(STORAGE_KEYS.USER);
-      if (u && !u.isGuest && u.token) {
-        // 登录用户从NAS获取
-        try {
-          const [wrong, fav, correct] = await Promise.all([
-            apiGet('/api/wrong-answers', true).catch(() => []),
-            apiGet('/api/favorites', true).catch(() => [])
-          ]);
-          setUserStat({ done: wrong.length + fav.length, correct: 0, wrong: wrong.length, fav: fav.length });
-        } catch (e) {}
-      } else {
-        // 游客/本地
-        const [wrongList, favList, correctList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES), getData(STORAGE_KEYS.CORRECT)]);
-        const done = (wrongList?.length || 0) + (favList?.length || 0) + (correctList?.length || 0);
-        setUserStat({ done, correct: correctList?.length || 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
-      }
+      const [wrongList, favList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES)]);
+      const done = (wrongList?.length || 0) + (favList?.length || 0);
+      setUserStat({ done, correct: 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
     })();
   }, []);
 
@@ -259,7 +266,57 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
       <MenuCard title="错题本" desc="查漏补缺" icon="📝" color="#F44336" on={() => onNavigate('wrong')} COLORS={COLORS} />
       <MenuCard title="收藏夹" desc="收藏题目" icon="❤️" color="#9C27B0" on={() => onNavigate('fav')} COLORS={COLORS} />
       <MenuCard title="模拟面试" desc="AI真实面试" icon="🎯" color="#FF5722" on={() => onNavigate('mock')} COLORS={COLORS} />
+      <MenuCard title="设置" desc="APK下载/反馈" icon="⚙️" color="#607D8B" on={() => onNavigate('settings')} COLORS={COLORS} />
     </ScrollView>
+  );
+}
+
+// ==================== 设置 ====================
+function SettingsScreen({ onBack, COLORS }) {
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+
+  const handleFeedback = async () => {
+    if (!feedbackText.trim()) { showToast('请输入反馈内容', 'error'); return; }
+    setFeedbackLoading(true);
+    try {
+      await apiPost('/api/feedback', { content: feedbackText }, true);
+      showToast('反馈已提交，感谢您的建议！', 'success');
+      setFeedbackText('');
+    } catch (e) { showToast('提交失败，请稍后重试', 'error'); }
+    setFeedbackLoading(false);
+  };
+
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>⚙️ 设置</Text>
+      <ScrollView style={{ flex: 1, padding: 16 }}>
+        {/* APK下载 */}
+        <View style={[styles.settingSection, { backgroundColor: COLORS.card }]}>
+          <Text style={[styles.settingTitle, { color: COLORS.text }]}>📥 APK下载</Text>
+          <Text style={[styles.settingDesc, { color: COLORS.textSecondary }]}>最新版本 v25 (125MB)</Text>
+          <TouchableOpacity style={[styles.settingBtn, { backgroundColor: COLORS.primary }]} onPress={() => showToast('请访问 http://100.106.29.60:3000/apk 下载最新APK', 'info')}>
+            <Text style={styles.settingBtnText}>下载安装包</Text>
+          </TouchableOpacity>
+        </View>
+        {/* 用户反馈 */}
+        <View style={[styles.settingSection, { backgroundColor: COLORS.card, marginTop: 16 }]}>
+          <Text style={[styles.settingTitle, { color: COLORS.text }]}>💬 用户反馈</Text>
+          <Text style={[styles.settingDesc, { color: COLORS.textSecondary }]}>提交您的建议或问题</Text>
+          <TextInput style={[styles.feedbackInput, { backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.text }]} placeholder="请输入反馈内容..." value={feedbackText} onChangeText={setFeedbackText} multiline numberOfLines={4} placeholderTextColor={COLORS.textSecondary} />
+          <TouchableOpacity style={[styles.settingBtn, { backgroundColor: COLORS.primary }]} onPress={handleFeedback} disabled={feedbackLoading}>
+            {feedbackLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.settingBtnText}>提交反馈</Text>}
+          </TouchableOpacity>
+        </View>
+        {/* 关于 */}
+        <View style={[styles.settingSection, { backgroundColor: COLORS.card, marginTop: 16 }]}>
+          <Text style={[styles.settingTitle, { color: COLORS.text }]}>ℹ️ 关于</Text>
+          <Text style={[styles.settingDesc, { color: COLORS.textSecondary }]}>面试大师 v25</Text>
+          <Text style={[styles.settingDesc, { color: COLORS.textSecondary }]}>让面试更简单</Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -272,84 +329,35 @@ function LearnScreen({ onBack, COLORS }) {
   const [cats, setCats] = useState({});
   const [selectedCat, setSelectedCat] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
-  const [selectedArticle, setSelectedArticle] = useState(null);
-  const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 从API加载分类和文章
-  useEffect(() => { 
-    Promise.all([
-      apiGet('/api/categories', true).catch(() => []),
-      apiGet('/api/articles', true).catch(() => [])
-    ]).then(([catsRes, artsRes]) => {
-      const m = {}; 
-      (catsRes || []).forEach(c => { m[c.name] = c.children || []; });
-      setCats(m);
-      setArticles(artsRes || []);
-    }).catch(e => { 
-      // API失败使用空数据
-      setCats({});
-      setArticles([]);
-    }).finally(() => setLoading(false)); 
-  }, []);
+  // 从API加载分类
+  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
 
-  // 文章详情页
-  if (selectedArticle) {
-    return (
-      <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedArticle(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-        <ScrollView style={{ flex: 1, padding: 16 }}>
-          <Text style={[styles.screenTitle, { color: COLORS.text }]}>{selectedArticle.title}</Text>
-          <Text style={[styles.desc, { color: COLORS.textSecondary }]}>来源: {selectedArticle.source || '未知'}</Text>
-          <View style={[styles.articleContent, { backgroundColor: COLORS.card, padding: 16, borderRadius: 12 }]}>
-            <Text style={[styles.articleBody, { color: COLORS.text }]}>{selectedArticle.content || selectedArticle.body || '暂无内容'}</Text>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  const filteredArticles = articles.filter(a => a.category === selectedCat || selectedSub && a.sub_category === selectedSub);
-
-  // 选择子分类后显示文章列表
-  if (selectedSub) {
-    return (
-      <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-        <Text style={[styles.screenTitle, { color: COLORS.text }]}>{selectedCat} · {selectedSub}</Text>
-        <Text style={[styles.desc, { color: COLORS.textSecondary }]}>{filteredArticles.length}篇文章</Text>
-        <ScrollView style={{ flex: 1, padding: 16 }}>
-          {filteredArticles.length === 0 ? (
-            <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无文章</Text>
-          ) : filteredArticles.map((a, i) => (
-            <TouchableOpacity key={i} style={[styles.articleCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedArticle(a)}>
-              <Text style={[styles.articleTitle, { color: COLORS.text }]}>{a.title}</Text>
-              <Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>{a.source || '未知来源'} → 点击阅读</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]} onPress={() => onBack()}>
-            <Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 开始刷题</Text>
-            <Text style={styles.articleDesc}>学习后刷题巩固</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  if (loading) return <LoadingView text="加载中..." COLORS={COLORS} />;
+  if (loading) return <LoadingView text="加载分类..." COLORS={COLORS} />;
   if (!selectedCat) return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>知识学习</Text>
-      <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类查看文章</Text>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 知识学习</Text>
+      <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始学习</Text>
       <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedCat(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>{cats[c]?.length || 0}个</Text></TouchableOpacity>)}</View>
+    </SafeAreaView>
+  );
+  if (!selectedSub) return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📚 {selectedCat}</Text>
+      <View style={styles.catGrid}>{(cats[selectedCat] || []).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text></TouchableOpacity>)}</View>
     </SafeAreaView>
   );
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => setSelectedCat(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>{selectedCat}</Text>
-      <View style={styles.catGrid}>{(cats[selectedCat] || []).map((s, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => setSelectedSub(s)}><Text style={[styles.catText, { color: COLORS.text }]}>{s}</Text></TouchableOpacity>)}</View>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setSelectedSub(null)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📖 {selectedCat} · {selectedSub}</Text>
+      <ScrollView style={{ flex: 1, padding: 16 }}>
+        <TouchableOpacity style={[styles.articleCard, { backgroundColor: COLORS.card }]}><Text style={[styles.articleTitle, { color: COLORS.text }]}>📖 知识文章</Text><Text style={[styles.articleDesc, { color: COLORS.textSecondary }]}>系统化学习该知识点</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.articleCard, { marginTop: 12, backgroundColor: COLORS.primary + '20' }]}><Text style={[styles.articleTitle, { color: COLORS.primary }]}>✍️ 对应题库</Text><Text style={styles.articleDesc}>学习后刷题巩固</Text></TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -400,11 +408,6 @@ function PracticeScreen({ onBack, COLORS }) {
         wrongList.push({ question_id: q.id, category: q.category, question: q.question, answer: q.answer, wrong_option: ans, answered_at: new Date().toISOString() });
         await saveData(STORAGE_KEYS.WRONG, wrongList); showToast('已记录错题', 'error');
       }
-    } else {
-      // 记录正确答案
-      const correctList = await getData(STORAGE_KEYS.CORRECT) || [];
-      correctList.push({ question_id: q.id, category: q.category, question: q.question, answered_at: new Date().toISOString() });
-      await saveData(STORAGE_KEYS.CORRECT, correctList);
     }
   };
 
@@ -420,21 +423,9 @@ function PracticeScreen({ onBack, COLORS }) {
     }
   };
 
-  // 分享题目
-  const shareQuestion = async () => {
-    const q = qs[idx];
-    const text = `【面试大师】${q.category}题：${q.question}\n\n答案：${q.answer}\n\n来源：面试大师APP`;
-    try {
-      await Share.share({ message: text, title: '面试大师题目分享' });
-    } catch (e) {
-      Clipboard.setString(text);
-      showToast('已复制到剪贴板', 'success');
-    }
-  };
-
   if (mode === 'select') return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
       <Text style={[styles.screenTitle, { color: COLORS.text }]}>✍️ 智能刷题</Text>
       {loading ? <LoadingView COLORS={COLORS} /> : (
         <>
@@ -467,10 +458,7 @@ function PracticeScreen({ onBack, COLORS }) {
           return <TouchableOpacity key={i} style={[styles.opt, { backgroundColor: bg, borderColor: bc }]} onPress={() => handleAnswer(o)} disabled={showResult}><Text style={[styles.optTxt, { color: COLORS.text }]}>{o}</Text>{showResult && o === q.answer && <Text style={{ color: COLORS.success }}>✓</Text>}</TouchableOpacity>;
         })}
       </ScrollView>
-      {showResult && <View style={styles.actionRow}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.card, borderColor: COLORS.border }]} onPress={toggleFavorite}><Text style={[styles.actionBtnTxt, { color: COLORS.text }]}>❤️ 收藏</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.primary }]} onPress={next}><Text style={styles.actionBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>
-      </View>}
+      {showResult && <TouchableOpacity style={[styles.nextBtn, { backgroundColor: COLORS.primary }]} onPress={next}><Text style={styles.nextBtnTxt}>{idx < qs.length - 1 ? '下一题' : '完成'}</Text></TouchableOpacity>}
     </SafeAreaView>
   );
 }
@@ -484,23 +472,22 @@ function WrongScreen({ onBack, COLORS }) {
   useEffect(() => { (async () => { 
     const u = await getData(STORAGE_KEYS.USER);
     setUser(u);
-    // 登录用户从NAS获取
+    // 登录用户从NAS获取，游客从本地获取
     if (u && !u.isGuest && u.token) {
-      try { const r = await apiGet('/api/wrong-answers', true); setList(r || []); } catch (e) { showToast('获取错题失败', 'error'); setList([]); }
+      try { const r = await apiGet('/api/wrong-answers', true); setList(r || []); } catch (e) { setList([]); }
     } else {
-      // 游客提示登录
-      setList([]); 
+      setList(await getData(STORAGE_KEYS.WRONG) || []);
     }
     setLoading(false);
   })(); }, []);
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>错题本</Text>
-      {(!user || user.isGuest) && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>请登录查看错题</Text>}
-      {list.length === 0 && user && !user.isGuest && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>📝 错题本</Text>
+      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>🎉 暂无错题!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.wrongCard, { backgroundColor: COLORS.card, borderLeftColor: COLORS.error }]}><Text style={[styles.wrongCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.wrongQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.wrongA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -515,66 +502,20 @@ function FavScreen({ onBack, COLORS }) {
     const u = await getData(STORAGE_KEYS.USER);
     setUser(u);
     if (u && !u.isGuest && u.token) {
-      try { const r = await apiGet('/api/favorites', true); setList(r || []); } catch (e) { showToast('获取收藏失败', 'error'); setList([]); }
+      try { const r = await apiGet('/api/favorites', true); setList(r || []); } catch (e) { setList([]); }
     } else {
-      setList([]); 
+      setList(await getData(STORAGE_KEYS.FAVORITES) || []);
     }
     setLoading(false);
   })(); }, []);
   if (loading) return <LoadingView COLORS={COLORS} />;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>收藏夹</Text>
-      {(!user || user.isGuest) && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>请登录查看收藏</Text>}
-      {list.length === 0 && user && !user.isGuest && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+      <Text style={[styles.screenTitle, { color: COLORS.text }]}>❤️ 收藏夹</Text>
+      <ScrollView>{list.length === 0 && <Text style={[styles.empty, { color: COLORS.textSecondary }]}>暂无收藏!</Text>}
       {list.map((q, i) => <View key={i} style={[styles.favCard, { backgroundColor: COLORS.card, borderLeftColor: '#9C27B0' }]}><Text style={[styles.favCat, { color: COLORS.textSecondary }]}>{q.category}</Text><Text style={[styles.favQ, { color: COLORS.text }]}>{q.question}</Text><Text style={[styles.favA, { color: COLORS.success }]}>答案: {q.answer}</Text></View>)}
-    </SafeAreaView>
-  );
-}
-
-// ==================== 设置 ====================
-function SettingsScreen({ onBack, user, onLogout, COLORS, isDark, toggleDarkMode }) {
-  const [u, setU] = useState(null);
-  
-  useEffect(() => { (async () => { const data = await getData(STORAGE_KEYS.USER); setU(data); })(); }, []);
-
-  const handleClearCache = async () => {
-    try {
-      await AsyncStorage.clear();
-      showToast('缓存已清理', 'success');
-    } catch (e) { showToast('清理失败', 'error'); }
-  };
-
-  return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
-      <Text style={[styles.screenTitle, { color: COLORS.text }]}>设置</Text>
-      
-      <View style={{ padding: 16 }}>
-        <View style={[styles.settingItem, { backgroundColor: COLORS.card }]}>
-          <Text style={[styles.settingLabel, { color: COLORS.text }]}>当前用户</Text>
-          <Text style={[styles.settingValue, { color: COLORS.textSecondary }]}>{u?.username || '未登录'}</Text>
-        </View>
-        
-        <View style={[styles.settingItem, { backgroundColor: COLORS.card }]}>
-          <Text style={[styles.settingLabel, { color: COLORS.text }]}>主题模式</Text>
-          <TouchableOpacity onPress={toggleDarkMode}>
-            <Text style={[styles.settingValue, { color: COLORS.primary }]}>{isDark ? '深色 🌙' : '浅色 ☀️'}</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <TouchableOpacity style={[styles.settingItem, { backgroundColor: COLORS.card }]} onPress={handleClearCache}>
-          <Text style={[styles.settingLabel, { color: COLORS.text }]}>清理缓存</Text>
-          <Text style={[styles.settingValue, { color: COLORS.error }]}>点击清理</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={[styles.settingItem, { backgroundColor: COLORS.error }]} onPress={async () => { await onLogout(); showToast('已退出登录', 'success'); }}>
-          <Text style={[styles.settingLabel, { color: '#fff' }]}>退出登录</Text>
-        </TouchableOpacity>
-      </View>
-      
-      <Text style={[styles.desc, { color: COLORS.textSecondary, textAlign: 'center', marginTop: 40 }]}>面试大师 v23{'\n'}让学习更高效</Text>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -626,7 +567,7 @@ function MockScreen({ onBack, COLORS }) {
   if (!started) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-        <TouchableOpacity style={[styles.backBtn]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={onBack}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 返回</Text></TouchableOpacity>
         <Text style={[styles.screenTitle, { color: COLORS.text }]}>🎯 模拟面试</Text>
         <Text style={[styles.desc, { color: COLORS.textSecondary }]}>选择分类开始AI面试</Text>
         <View style={styles.catGrid}>{Object.keys(cats).map((c, i) => <TouchableOpacity key={i} style={[styles.catCard, { backgroundColor: COLORS.card }]} onPress={() => startMock(c)}><Text style={[styles.catText, { color: COLORS.text }]}>{c}</Text><Text style={[styles.catSub, { color: COLORS.textSecondary }]}>开始面试</Text></TouchableOpacity>)}</View>
@@ -638,7 +579,7 @@ function MockScreen({ onBack, COLORS }) {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: COLORS.background }]}>
-      <TouchableOpacity style={[styles.backBtn]} onPress={() => setStarted(false)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 退出</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.backBtn, { paddingTop: Platform.OS === 'android' ? 50 : 60 }]} onPress={() => setStarted(false)}><Text style={[styles.backBtnText, { color: COLORS.primary }]}>← 退出</Text></TouchableOpacity>
       <View style={[styles.qCon, { backgroundColor: COLORS.background }]}>
         <Text style={[styles.qCat, { color: COLORS.textSecondary }]}>{category} • {current + 1}/{questions.length}</Text>
         <Text style={[styles.qTxt, { color: COLORS.text }]}>{questions[current]?.question}</Text>
@@ -663,8 +604,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10 },
-  toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12, elevation: 10, opacity: 0.95 },
-  toastTxt: { color: '#fff', fontSize: 15, textAlign: 'center', fontWeight: '500' },
+  toast: { position: 'absolute', bottom: '15%', left: 20, right: 20, padding: 14, borderRadius: 10, elevation: 10 },
+  toastTxt: { color: '#fff', fontSize: 14, textAlign: 'center' },
   loginContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loginBox: { width: SCREEN_WIDTH * 0.85, borderRadius: 20, padding: 24, elevation: 5 },
   title: { fontSize: 32, fontWeight: 'bold', textAlign: 'center' },
@@ -675,14 +616,14 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 16, fontWeight: '600' },
   tabTextActive: { color: '#fff' },
   input: { borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, borderWidth: 1 },
-  btn: { borderRadius: 12, paddingVertical: 16, paddingHorizontal: 32, alignItems: 'center', marginTop: 12, elevation: 3 },
+  btn: { borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 8 },
   btnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   linkBtn: { marginTop: 16, alignItems: 'center' },
   linkText: { fontSize: 14 },
   guestBtn: { marginTop: 20, alignItems: 'center' },
   guestText: { fontSize: 14 },
   screen: { flex: 1 },
-  header: { paddingTop: 50, padding: 20, flexDirection: 'row', justifyContent: 'space-between' },
+  header: { padding: 20, flexDirection: 'row', justifyContent: 'space-between' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
   headerSub: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
   logoutBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
@@ -700,7 +641,7 @@ const styles = StyleSheet.create({
   menuCon: { marginLeft: 16, flex: 1 },
   menuTitle: { fontSize: 16, fontWeight: '600' },
   menuDesc: { fontSize: 13 },
-  backBtn: { paddingTop: 50, padding: 12 },
+  backBtn: { padding: 12 },
   backBtnText: { fontSize: 16, fontWeight: '600' },
   screenTitle: { fontSize: 24, fontWeight: 'bold', margin: 16 },
   desc: { fontSize: 14, marginHorizontal: 16, marginBottom: 16 },
@@ -708,6 +649,13 @@ const styles = StyleSheet.create({
   catCard: { width: '46%', borderRadius: 12, padding: 16, margin: '2%', alignItems: 'center', elevation: 2 },
   catText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
   catSub: { fontSize: 12 },
+  // 设置页面样式
+  settingSection: { borderRadius: 12, padding: 16, marginHorizontal: 16, marginBottom: 12 },
+  settingTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
+  settingDesc: { fontSize: 14, marginBottom: 12 },
+  settingBtn: { padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  settingBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  feedbackInput: { borderWidth: 1, borderRadius: 8, padding: 12, minHeight: 100, textAlignVertical: 'top', marginBottom: 12 },
   label: { fontSize: 14, marginLeft: 16, marginTop: 12 },
   chipScroll: { paddingHorizontal: 12, marginVertical: 8 },
   chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginHorizontal: 4, borderWidth: 1 },
@@ -739,11 +687,6 @@ const styles = StyleSheet.create({
   articleCard: { padding: 20, borderRadius: 12, marginTop: 12 },
   articleTitle: { fontSize: 18, fontWeight: '600' },
   articleDesc: { fontSize: 14, marginTop: 8 },
-  articleContent: { padding: 16, borderRadius: 12, marginTop: 12 },
-  articleBody: { fontSize: 16, lineHeight: 24 },
-  settingItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 12, marginTop: 12 },
-  settingLabel: { fontSize: 16, fontWeight: '500' },
-  settingValue: { fontSize: 14 },
   resultBox: { padding: 16, borderRadius: 12, marginTop: 16 },
   resultScore: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
   resultFeedback: { fontSize: 15, lineHeight: 22 },
