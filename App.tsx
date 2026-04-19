@@ -332,7 +332,7 @@ function LearnScreen({ onBack, COLORS }) {
   const [loading, setLoading] = useState(true);
 
   // 从API加载分类
-  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
+  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; (Array.isArray(r) ? r : []).forEach(c => { const name = typeof c === 'string' ? c : (c.name || ''); m[name] = (typeof c === 'object' ? c.children : []) || []; }); setCats(m); }).catch(e => showToast('加载失败', 'error')).finally(() => setLoading(false)); }, []);
 
   if (loading) return <LoadingView text="加载分类..." COLORS={COLORS} />;
   if (!selectedCat) return (
@@ -531,7 +531,7 @@ function MockScreen({ onBack, COLORS }) {
   const [loading, setLoading] = useState(false);
   const [cats, setCats] = useState({});
 
-  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; r.forEach(c => { m[c.name] = c.children || []; }); setCats(m); }).catch(() => {}); }, []);
+  useEffect(() => { apiGet('/api/categories', true).then(r => { const m = {}; (Array.isArray(r) ? r : []).forEach(c => { const name = typeof c === 'string' ? c : (c.name || ''); m[name] = (typeof c === 'object' ? c.children : []) || []; }); setCats(m); }).catch(() => {}); }, []);
 
   const startMock = async (cat) => {
     setLoading(true);
