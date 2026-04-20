@@ -11,12 +11,10 @@ const API_BASE_V6 = 'http://[fd7a:115c:a1e0::8a01:1dcc]:3000';
 const TIMEOUT = 3000;
 const TIMEOUT_SLOW = 8000;
 
-// 深色模式检测
+// 深色模式检测 - 简化版本，避免初始化问题
 const useSystemColorScheme = () => {
-  const [colorScheme, setColorScheme] = useState(() => {
-    return useColorScheme() || 'light';
-  });
-  return colorScheme;
+  const scheme = useColorScheme();
+  return scheme === 'dark' ? 'dark' : 'light';
 };
 
 // 深色模式颜色
@@ -98,31 +96,44 @@ export default function App() {
     return () => backHandler.remove();
   }, [screen, prevScreen]);
 
-  // 初始化 - 防止白屏的强化版本
+  // 初始化 - 简化版本，更可靠
   useEffect(() => { 
     let mounted = true;
-    (async () => { 
-      // 添加超时保护，5秒后强制结束loading
-      const initTimeout = setTimeout(() => { 
-        if (mounted) { setLoading(false); } 
-      }, 5000);
-      
-      try {
-        // 直接尝试获取用户数据，使用简化逻辑
-        const u = await getData(STORAGE_KEYS.USER); 
-        if (mounted && u) { 
-          setUser(u); 
-          setScreen('home'); 
+    // 使用更短的超时，更快显示界面
+    const initTimeout = setTimeout(() => { 
+      if (mounted) { console.log('初始化超时，强制结束loading'); setLoading(false); } 
+    }, 3000);
+    
+    try {
+      // 简化逻辑：直接读取本地存储，不做复杂处理
+      AsyncStorage.getItem(STORAGE_KEYS.USER).then(u => {
+        if (!mounted) return;
+        clearTimeout(initTimeout);
+        if (u) {
+          try {
+            const userData = JSON.parse(u);
+            if (userData && userData.id) {
+              setUser(userData);
+              setScreen('home');
+            }
+          } catch (e) {
+            console.log('解析用户数据失败:', e);
+          }
         }
-      } catch (e) {
-        console.log('初始化错误:', e);
-      } finally {
+        setLoading(false);
+      }).catch(e => {
+        console.log('读取用户数据失败:', e);
         if (mounted) {
           clearTimeout(initTimeout);
           setLoading(false);
         }
-      }
-    })(); 
+      });
+    } catch (e) {
+      console.log('初始化异常:', e);
+      clearTimeout(initTimeout);
+      setLoading(false);
+    }
+    
     return () => { mounted = false; };
   }, []);
 
@@ -234,13 +245,19 @@ function HomeScreen({ user, onNavigate, onLogout, COLORS, isDark, toggleDarkMode
   const [userStat, setUserStat] = useState({ done: 0, correct: 0, wrong: 0, fav: 0 });
 
   useEffect(() => { 
-    apiGet('/api/crawler/status', true).then(r => setStat(r.data || { questions: 0 })).catch(() => {}).finally(() => setLoading(false)); 
-    // 加载用户学习统计
-    (async () => {
-      const [wrongList, favList] = await Promise.all([getData(STORAGE_KEYS.WRONG), getData(STORAGE_KEYS.FAVORITES)]);
-      const done = (wrongList?.length || 0) + (favList?.length || 0);
-      setUserStat({ done, correct: 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
-    })();
+    // 首页加载时调用API获取题库状态 - 使用Promise避免await
+    apiGet('/api/crawler/status', true)
+      .then(r => setStat(r.data || { questions: 0 }))
+      .catch(() => setStat({ questions: 0 }))
+      .finally(() => setLoading(false));
+    
+    // 加载用户本地数据
+    getData(STORAGE_KEYS.WRONG).then(wrongList => {
+      getData(STORAGE_KEYS.FAVORITES).then(favList => {
+        const done = ((wrongList?.length) || 0) + ((favList?.length) || 0);
+        setUserStat({ done, correct: 0, wrong: wrongList?.length || 0, fav: favList?.length || 0 });
+      }).catch(() => {});
+    }).catch(() => {});
   }, []);
 
   return (
