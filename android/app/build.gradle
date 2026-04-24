@@ -59,7 +59,7 @@ react {
     // hermesFlags = ["-O", "-output-source-map"]
 
     /* Autolinking */
-    autolinkLibrariesWithApp()
+    // autolinkLibrariesWithApp() // removed: incompatible with AGP 8.x
 }
 
 /**
