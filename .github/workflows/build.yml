@@ -20,28 +20,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - uses: android-actions/setup-android@v2
-      - name: Clean and verify
+      - name: Clean and Build
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean --no-daemon 2>&1 | tail -5
-          echo "CLEAN_DONE"
-      - name: Build debug APK
-        run: |
-          cd android
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee /tmp/gradle_output.txt
-          echo "GRADLE_EXIT=$?" >> $GITHUB_OUTPUT
+          ./gradlew clean assembleDebug --no-daemon 2>&1 | tee /tmp/gradle_output.txt
+          echo "GRADLE_EXIT=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
       - name: Check APK
         if: always()
         run: |
-          echo "=== GRADLE EXIT STATUS ==="
+          echo "=== GRADLE EXIT ==="
           grep "GRADLE_EXIT" /tmp/gradle_output.txt || echo "NO_GRADLE_EXIT"
           echo ""
           echo "=== APK CHECK ==="
           ls -la android/app/build/outputs/apk/debug/ 2>/dev/null || echo "NO_APK_DIR"
           echo ""
-          echo "=== BUILD ERRORS (if any) ==="
-          grep -E "FAILURE|ERROR|Could not|Unresolved|What went wrong" /tmp/gradle_output.txt | grep -v "warning:" | tail -20
+          echo "=== BUILD ERRORS ==="
+          grep -E "FAILURE|ERROR|Unresolved|What went wrong" /tmp/gradle_output.txt | grep -v "warning:" | tail -10
       - uses: actions/upload-artifact@v4
         if: success()
         with:
