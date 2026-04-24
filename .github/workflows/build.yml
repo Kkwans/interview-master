@@ -20,31 +20,30 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - uses: android-actions/setup-android@v2
-      - name: Debug gradle files
+      - name: Clean and verify
         run: |
-          echo "=== android/app/build.gradle ==="
-          head -30 android/app/build.gradle
-          echo ""
-          echo "=== android/build.gradle ==="
-          cat android/build.gradle
-          echo ""
-          echo "=== android/gradle.properties ==="
-          cat android/gradle.properties
-          echo ""
-          echo "=== assets dir ==="
-          ls android/app/src/main/assets/ 2>/dev/null || echo "NO_ASSETS_DIR"
-      - run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle_output.txt
+          ./gradlew clean --no-daemon 2>&1 | tail -5
+          echo "CLEAN_DONE"
+      - name: Build debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee /tmp/gradle_output.txt
           echo "GRADLE_EXIT=$?" >> $GITHUB_OUTPUT
-      - run: |
-          echo "=== GRADLE OUTPUT TAIL ==="
-          tail -100 /tmp/gradle_output.txt
-          echo "=== APK EXISTS? ==="
-          ls -la android/app/build/outputs/apk/debug/ 2>/dev/null || echo "NO_APK_DIR"
-      - uses: actions/upload-artifact@v4
+      - name: Check APK
         if: always()
+        run: |
+          echo "=== GRADLE EXIT STATUS ==="
+          grep "GRADLE_EXIT" /tmp/gradle_output.txt || echo "NO_GRADLE_EXIT"
+          echo ""
+          echo "=== APK CHECK ==="
+          ls -la android/app/build/outputs/apk/debug/ 2>/dev/null || echo "NO_APK_DIR"
+          echo ""
+          echo "=== BUILD ERRORS (if any) ==="
+          grep -E "FAILURE|ERROR|Could not|Unresolved|What went wrong" /tmp/gradle_output.txt | grep -v "warning:" | tail -20
+      - uses: actions/upload-artifact@v4
+        if: success()
         with:
-          name: debug-apk
+          name: interview-master-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
